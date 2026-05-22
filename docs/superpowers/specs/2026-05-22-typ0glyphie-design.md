@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-22
 **Status:** Brainstormed, approved for planning
-**Author:** Chris Fiore (with Claude)
+**Author:** Christopher Robin Fiore (with Claude)
 
 ## What it is
 
