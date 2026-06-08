@@ -9,7 +9,7 @@ will draw you its own skeleton on demand: the ratios, the modules, the spacing, 
 as live dimension arrows. A composition becomes a teaching object. The tool teaches the
 system it uses.
 
-→ **[/](.)** the alive hero · **[/studio](.)** the generator · **[/case](.)** the case study
+Three surfaces: **`/`** the alive hero · **`/studio`** the generator · **`/case`** the case study.
 
 ## What it does
 
