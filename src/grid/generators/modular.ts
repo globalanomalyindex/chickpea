@@ -26,6 +26,8 @@ export function generateModular(seed: number, params: ModularParams): Grid {
   const colW = (usableW - (C - 1) * gutter) / C
   const rowH = (usableH - (R - 1) * gutter) / R
 
+  // Interior guides sit on each column's right edge (the start of its trailing gutter);
+  // the c===0 and c===C guides are the left/right content margins.
   const guides: Guide[] = []
   for (let c = 0; c <= C; c++) guides.push({ axis: 'v', pos: margin + c * (colW + gutter) - (c > 0 ? gutter : 0) })
   for (let r = 0; r <= R; r++) guides.push({ axis: 'h', pos: margin + r * (rowH + gutter) - (r > 0 ? gutter : 0) })
@@ -50,7 +52,7 @@ export function generateModular(seed: number, params: ModularParams): Grid {
     aspect: 1,
     guides,
     modules,
-    ratios: [{ name: 'columns:rows', value: C / R }],
+    ratios: [{ name: 'module', value: colW / rowH }],
     meta: { columns: C, rows: R },
   }
 }

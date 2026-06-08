@@ -1,19 +1,12 @@
 import { mulberry32, type Rng } from '../prng'
 import type { Grid, Guide, Module, NatureParams } from '../types'
+import { largestIndex } from './_subdivide'
 
 const INV_PHI = 0.6180339887 // 1/φ
 
 export const defaultNatureParams: NatureParams = {
   kind: 'nature',
   depth: 6,
-}
-
-function largestIndex(modules: Module[]): number {
-  let idx = 0
-  for (let i = 1; i < modules.length; i++) {
-    if (modules[i].w * modules[i].h > modules[idx].w * modules[idx].h) idx = i
-  }
-  return idx
 }
 
 export function generateNature(seed: number, params: NatureParams): Grid {

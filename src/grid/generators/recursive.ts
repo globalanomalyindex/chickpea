@@ -1,19 +1,12 @@
 import { mulberry32, pick, type Rng } from '../prng'
 import type { Grid, Guide, Module, RecursiveParams } from '../types'
+import { largestIndex } from './_subdivide'
 
 export const defaultRecursiveParams: RecursiveParams = {
   kind: 'recursive',
   targetModules: 9,
   splitRatios: [0.5, 0.382, 0.618],
   vBias: 0.5,
-}
-
-function largestIndex(modules: Module[]): number {
-  let idx = 0
-  for (let i = 1; i < modules.length; i++) {
-    if (modules[i].w * modules[i].h > modules[idx].w * modules[idx].h) idx = i
-  }
-  return idx
 }
 
 export function generateRecursive(seed: number, params: RecursiveParams): Grid {
