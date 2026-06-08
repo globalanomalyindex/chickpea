@@ -19,6 +19,21 @@ function inkFor(hex: string): string {
   return luminance(hexToRgb(hex)) < 0.42 ? LIGHT_INK : DARK_INK
 }
 
+/**
+ * Ensure Mafinest is rasterized into the font cache before canvas measureText/fillText,
+ * otherwise the first export after load silently falls back to Georgia (wrong squeeze-fit
+ * + wrong glyphs). No-op in environments without the FontFaceSet API.
+ */
+export async function ensureExportFontReady(): Promise<void> {
+  if (typeof document === 'undefined' || !document.fonts) return
+  try {
+    await document.fonts.load('100px Mafinest')
+    await document.fonts.ready
+  } catch {
+    // best-effort: a font that won't load falls back, same as before
+  }
+}
+
 /** Draw a composition into a 2D context whose box is [0,0,W,H] (device px). */
 function drawComposition(ctx: CanvasRenderingContext2D, composition: Composition, W: number, H: number) {
   // background
@@ -77,6 +92,10 @@ export async function compositionToPngBlob(
   const { width, height, scale = 2 } = opts
   const W = Math.round(width * scale)
   const H = Math.round(height * scale)
+
+  // make sure Mafinest is loaded before any measureText/fillText, else the first export
+  // after page load falls back to Georgia (wrong squeeze-fit + glyphs)
+  await ensureExportFontReady()
 
   const big = document.createElement('canvas')
   big.width = W

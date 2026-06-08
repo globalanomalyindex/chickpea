@@ -316,6 +316,7 @@ function Guide({
 }) {
   const pct = `${pos * 100}%`
   const isV = axis === 'v'
+  const cutName = `${isV ? 'V' : 'H'} ${pos.toFixed(2)}`
   const line: React.CSSProperties = isV
     ? { position: 'absolute', left: pct, top: 0, bottom: 0, width: 0, borderLeft: `1px ${ghost ? 'dashed' : 'solid'} ${CREAM}` }
     : { position: 'absolute', top: pct, left: 0, right: 0, height: 0, borderTop: `1px ${ghost ? 'dashed' : 'solid'} ${CREAM}` }
@@ -324,8 +325,18 @@ function Guide({
       {!ghost && (
         <>
           <div
+            role="button"
+            tabIndex={0}
+            aria-label={`cut ${cutName}: drag to move, off the image to delete; Enter or Space to delete`}
             onPointerDown={onHandleDown}
             onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                e.stopPropagation()
+                onDelete?.()
+              }
+            }}
             title="drag to move · drag off image to delete"
             style={{
               position: 'absolute',
@@ -341,9 +352,19 @@ function Guide({
             }}
           />
           <div
+            role="button"
+            tabIndex={0}
+            aria-label={`delete cut ${cutName}`}
             onClick={(e) => {
               e.stopPropagation()
               onDelete?.()
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                e.stopPropagation()
+                onDelete?.()
+              }
             }}
             style={{
               position: 'absolute',
@@ -360,7 +381,7 @@ function Guide({
               whiteSpace: 'nowrap',
             }}
           >
-            {isV ? 'V' : 'H'} {pos.toFixed(2)}
+            {cutName}
           </div>
         </>
       )}

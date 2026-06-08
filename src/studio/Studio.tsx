@@ -13,7 +13,7 @@ import { SkeletonReveal } from './SkeletonReveal'
 import { GeneratorControls } from './GeneratorControls'
 import { ImageBisection } from './ImageBisection'
 import { compositionToSvg, loadMafinestDataUrl } from '../io/export-svg'
-import { compositionToPngBlob } from '../io/export-png'
+import { compositionToPngBlob, ensureExportFontReady } from '../io/export-png'
 import { exportFilename } from '../io/filename'
 import { downloadBlob, downloadText } from '../io/download'
 import { CornerNav } from '../app/CornerNav'
@@ -41,6 +41,9 @@ export function Studio() {
 
   const [mode, setMode] = useState<StudioMode>('scratch')
   const [image, setImage] = useState<ImageState | null>(null)
+  // true while the user is back in the bisection step adjusting an already-committed image.
+  // we keep `image` populated so its dataUrl/palette/cuts survive and seed the ImageBisection.
+  const [reBisecting, setReBisecting] = useState(false)
 
   const [generator, setGenerator] = useState<GeneratorKind>(initial.kind)
   const [seed, setSeed] = useState<number>(initial.seed)
@@ -48,8 +51,9 @@ export function Studio() {
   const [textOn, setTextOn] = useState(true)
   const [busy, setBusy] = useState(false)
 
-  // are we sitting in the bisection step (image mode, nothing committed yet)?
-  const bisecting = mode === 'image' && image === null
+  // are we sitting in the bisection step? image mode, with either nothing committed yet or
+  // the user explicitly back in to re-bisect an already-committed image.
+  const bisecting = mode === 'image' && (image === null || reBisecting)
 
   // keep (generator, seed) in the URL query so any state is shareable
   useEffect(() => {
@@ -81,20 +85,25 @@ export function Studio() {
 
   const onMode = useCallback((m: StudioMode) => {
     setMode(m)
-    if (m === 'scratch') setImage(null)
+    if (m === 'scratch') {
+      setImage(null)
+      setReBisecting(false)
+    }
   }, [])
 
   const onCommitImage = useCallback((cuts: Cut[], pal: ColorWeight[], dataUrl: string) => {
     setImage({ cuts, palette: pal, dataUrl })
+    setReBisecting(false) // leaving the bisection step → show the anchored composition
     setSeed(randomSeed()) // first seeded variation of the committed cuts
   }, [])
 
-  const onReBisect = useCallback(() => setImage(null), [])
+  // return to the bisection step, keeping the committed image/cuts so they seed ImageBisection
+  const onReBisect = useCallback(() => setReBisecting(true), [])
 
   const exportPng = useCallback(async () => {
     setBusy(true)
     try {
-      await loadMafinestDataUrl().catch(() => null) // warm the font for canvas measure
+      await ensureExportFontReady() // load Mafinest so canvas measure/draw doesn't fall back to Georgia
       const blob = await compositionToPngBlob(composition, grid, { width: EXPORT_PX, height: EXPORT_PX, scale: 2 })
       downloadBlob(blob, exportFilename('png'))
     } finally {
@@ -105,6 +114,7 @@ export function Studio() {
   const exportSvg = useCallback(async () => {
     setBusy(true)
     try {
+      await ensureExportFontReady() // load Mafinest so the synchronous measure (measureLine) doesn't fall back to Georgia
       const fontDataUrl = await loadMafinestDataUrl().catch(() => undefined)
       const svg = compositionToSvg(composition, grid, {
         width: EXPORT_PX,
@@ -137,7 +147,7 @@ export function Studio() {
         revealOn={revealOn}
         textOn={textOn}
         busy={busy}
-        imageCommitted={mode === 'image' && image !== null}
+        imageCommitted={mode === 'image' && image !== null && !bisecting}
         bisecting={bisecting}
         onMode={onMode}
         onGenerator={setGenerator}
@@ -154,7 +164,14 @@ export function Studio() {
       <Stage>
         {(size) =>
           bisecting ? (
-            <ImageBisection onCommit={onCommitImage} />
+            <ImageBisection
+              onCommit={onCommitImage}
+              initial={
+                reBisecting && image
+                  ? { dataUrl: image.dataUrl, palette: image.palette, cuts: image.cuts }
+                  : null
+              }
+            />
           ) : (
             <div style={{ position: 'relative', width: size, height: size }}>
               <div style={{ boxShadow: '0 24px 80px rgba(0,0,0,0.32)' }}>
