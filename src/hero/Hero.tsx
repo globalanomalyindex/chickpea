@@ -1,6 +1,7 @@
 import { useStageScale } from './useStageScale'
 import { ARTBOARD, HERO_COLORS, TEXT_BLOCKS, GLYPHS, SKILLS_RULE, type TextBlock } from './heroLayout'
 import { MeasureLayer } from './MeasureLayer'
+import { StudioGlyphLink } from './StudioGlyphLink'
 import { useRef } from 'react'
 
 function blockStyle(b: TextBlock): React.CSSProperties {
@@ -65,23 +66,27 @@ export function Hero() {
           </div>
         ))}
 
-        {GLYPHS.map((g) => (
-          <span
-            key={g.id}
-            data-glyph={g.id}
-            style={{
-              position: 'absolute',
-              left: g.left,
-              top: g.top,
-              fontFamily: 'var(--font-display)',
-              fontSize: g.fontSize,
-              color: HERO_COLORS.cream,
-              userSelect: 'none',
-            }}
-          >
-            {g.glyph}
-          </span>
-        ))}
+        {GLYPHS.map((g) =>
+          g.id === 'arrow-right' ? (
+            <StudioGlyphLink key={g.id} glyph={g} />
+          ) : (
+            <span
+              key={g.id}
+              data-glyph={g.id}
+              style={{
+                position: 'absolute',
+                left: g.left,
+                top: g.top,
+                fontFamily: 'var(--font-display)',
+                fontSize: g.fontSize,
+                color: HERO_COLORS.cream,
+                userSelect: 'none',
+              }}
+            >
+              {g.glyph}
+            </span>
+          ),
+        )}
 
         {/* skills rule */}
         <div
