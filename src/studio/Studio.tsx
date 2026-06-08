@@ -16,6 +16,7 @@ import { compositionToSvg, loadMafinestDataUrl } from '../io/export-svg'
 import { compositionToPngBlob } from '../io/export-png'
 import { exportFilename } from '../io/filename'
 import { downloadBlob, downloadText } from '../io/download'
+import { CornerNav } from '../app/CornerNav'
 
 const SLATE = '#5d646b'
 const PALETTE_COUNT = 6
@@ -127,6 +128,7 @@ export function Studio() {
         fontFamily: 'var(--font-mono)',
       }}
     >
+      <CornerNav />
       <GeneratorControls
         mode={mode}
         generator={generator}

@@ -2,6 +2,7 @@ import { useStageScale } from './useStageScale'
 import { ARTBOARD, HERO_COLORS, TEXT_BLOCKS, GLYPHS, SKILLS_RULE, type TextBlock } from './heroLayout'
 import { MeasureLayer } from './MeasureLayer'
 import { StudioGlyphLink } from './StudioGlyphLink'
+import { CornerNav } from '../app/CornerNav'
 import { useRef } from 'react'
 
 function blockStyle(b: TextBlock): React.CSSProperties {
@@ -34,6 +35,7 @@ export function Hero() {
     <main
       style={{ position: 'fixed', inset: 0, background: HERO_COLORS.slate, overflow: 'hidden' }}
     >
+      <CornerNav />
       <div
         ref={stageRef}
         style={{

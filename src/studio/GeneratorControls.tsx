@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import type { Grid, GeneratorKind } from '../grid/types'
 import type { StudioMode } from './Studio'
 import { GENERATOR_KINDS } from '../grid/generators'
@@ -160,20 +161,10 @@ export function GeneratorControls(p: Props) {
       )}
 
       <div style={{ flex: 1 }} />
-      <a
-        href="/"
-        style={{
-          fontFamily: 'var(--font-mono)',
-          fontSize: 10.5,
-          letterSpacing: '0.12em',
-          textTransform: 'uppercase',
-          color: CREAM,
-          opacity: 0.5,
-          textDecoration: 'none',
-        }}
-      >
-        ← hero
-      </a>
+      <div style={{ display: 'flex', gap: 18 }}>
+        <FooterLink to="/" label="← hero" />
+        <FooterLink to="/case" label="case study" />
+      </div>
     </aside>
   )
 }
@@ -371,6 +362,25 @@ function Toggle({ label, on, onClick }: { label: string; on: boolean; onClick: (
         />
       </span>
     </button>
+  )
+}
+
+function FooterLink({ to, label }: { to: string; label: string }) {
+  return (
+    <Link
+      to={to}
+      style={{
+        fontFamily: 'var(--font-mono)',
+        fontSize: 10.5,
+        letterSpacing: '0.12em',
+        textTransform: 'uppercase',
+        color: CREAM,
+        opacity: 0.5,
+        textDecoration: 'none',
+      }}
+    >
+      {label}
+    </Link>
   )
 }
 

@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { HeroRoute } from './routes/HeroRoute'
 import { StudioRoute } from './routes/StudioRoute'
+import { CaseStudyRoute } from './routes/CaseStudyRoute'
 import { DevRoute } from './routes/DevRoute'
 
 export function App() {
@@ -9,6 +10,7 @@ export function App() {
       <Routes>
         <Route path="/" element={<HeroRoute />} />
         <Route path="/studio" element={<StudioRoute />} />
+        <Route path="/case" element={<CaseStudyRoute />} />
         <Route path="/dev" element={<DevRoute />} />
         <Route path="*" element={<HeroRoute />} />
       </Routes>
