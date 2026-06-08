@@ -27,7 +27,9 @@ export function GoldenFigure() {
     () => grid.modules.reduce((p, c) => (c.w * c.h > p.w * p.h ? c : p)),
     [grid],
   )
-  const longSide = Math.max(largest.w, largest.h)
+  // the φ arrow runs along the module's longer axis, centered on it, spanning exactly that
+  // side — so the annotation is geometrically honest, not just decorative.
+  const horizontal = largest.w >= largest.h
   const ratio = Math.max(largest.w, largest.h) / Math.min(largest.w, largest.h)
 
   return (
@@ -41,16 +43,24 @@ export function GoldenFigure() {
         {(size) => (
           <div style={{ position: 'relative', width: size, height: size }}>
             <GridSvg grid={grid} size={size} />
-            {/* φ arrow over the long side of the largest module */}
+            {/* φ arrow along the long axis of the largest module, centered on it */}
             <div
               style={{
                 position: 'absolute',
-                left: largest.x * size + (largest.w * size - longSide * size) / 2,
-                top: (largest.y + largest.h / 2) * size - 8,
+                left: horizontal
+                  ? largest.x * size
+                  : (largest.x + largest.w / 2) * size - 8,
+                top: horizontal
+                  ? (largest.y + largest.h / 2) * size - 8
+                  : largest.y * size,
                 pointerEvents: 'none',
               }}
             >
-              <DimensionArrow orientation="h" length={longSide * size} label="φ" />
+              <DimensionArrow
+                orientation={horizontal ? 'h' : 'v'}
+                length={(horizontal ? largest.w : largest.h) * size}
+                label="φ"
+              />
             </div>
           </div>
         )}
