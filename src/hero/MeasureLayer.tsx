@@ -148,8 +148,8 @@ function SeamArrow({ seam }: { seam: Seam }) {
       <DimensionArrow
         orientation={seam.axis === 'v' ? 'h' : 'v'}
         length={arrowLen}
-        label={String(Math.round(seam.gap))}
-        color={HERO_COLORS.steel}
+        label={String(Math.round(seam.gap + DELTA))}
+        color={HERO_COLORS.cream}
       />
     </div>
   )
@@ -160,9 +160,9 @@ function SeamArrow({ seam }: { seam: Seam }) {
  * labels reading the pointer's artboard coordinates — a subtle nod to the grid tool.
  */
 function GridBloom({ x, y }: { x: number; y: number }) {
-  const c = HERO_COLORS.steel
+  const c = HERO_COLORS.cream
   return (
-    <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', opacity: 0.32 }}>
+    <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', opacity: 0.42 }}>
       {/* vertical guide */}
       <div
         style={{
