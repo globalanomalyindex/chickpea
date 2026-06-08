@@ -1,12 +1,14 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { HeroRoute } from './routes/HeroRoute'
 import { DevRoute } from './routes/DevRoute'
 
 export function App() {
   return (
     <BrowserRouter>
       <Routes>
+        <Route path="/" element={<HeroRoute />} />
         <Route path="/dev" element={<DevRoute />} />
-        <Route path="*" element={<Navigate to="/dev" replace />} />
+        <Route path="*" element={<HeroRoute />} />
       </Routes>
     </BrowserRouter>
   )
