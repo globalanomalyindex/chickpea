@@ -17,6 +17,7 @@ import { compositionToPngBlob } from '../io/export-png'
 import { exportFilename } from '../io/filename'
 import { downloadBlob, downloadText } from '../io/download'
 import { CornerNav } from '../app/CornerNav'
+import './studio.css'
 
 const SLATE = '#5d646b'
 const PALETTE_COUNT = 6
@@ -119,12 +120,11 @@ export function Studio() {
 
   return (
     <main
+      className="studio-shell"
       style={{
         position: 'fixed',
         inset: 0,
         background: SLATE,
-        display: 'flex',
-        overflow: 'hidden',
         fontFamily: 'var(--font-mono)',
       }}
     >
@@ -189,6 +189,7 @@ function Stage({ children }: { children: (size: number) => React.ReactNode }) {
   return (
     <div
       ref={ref}
+      className="studio-stage"
       style={{
         flex: 1,
         position: 'relative',

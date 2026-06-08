@@ -1,6 +1,28 @@
 import { mulberry32, pick, type Rng } from '../grid/prng'
 import type { Grid, Module } from '../grid/types'
 import type { PaletteColor } from '../palette/generate'
+import { luminance } from '../palette/hsl'
+
+/**
+ * Pick the palette color whose luminance is farthest from the palette's mean luminance —
+ * the most tonally distinct member — so module fills sit against it with contrast instead
+ * of melting in. Deterministic: a pure function of the palette. Ties resolve to the lower
+ * index, so the choice is stable.
+ */
+function contrastBackground(palette: PaletteColor[]): string {
+  const lums = palette.map((c) => luminance(c.rgb))
+  const mean = lums.reduce((a, b) => a + b, 0) / lums.length
+  let best = 0
+  let bestDist = -1
+  for (let i = 0; i < palette.length; i++) {
+    const d = Math.abs(lums[i] - mean)
+    if (d > bestDist) {
+      bestDist = d
+      best = i
+    }
+  }
+  return palette[best].hex
+}
 
 export interface CompModule {
   module: Module
@@ -46,6 +68,6 @@ export function buildComposition(
     if (rng() < textChance) colored[i].text = pick(rng, WORDS)
   }
 
-  const background = palette[palette.length - 1].hex
+  const background = contrastBackground(palette)
   return { background, modules: colored }
 }

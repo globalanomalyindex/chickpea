@@ -8,3 +8,20 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
+
+/*
+ * Reduced motion: collapse CSS transitions/animations to a hair so nothing slides or
+ * springs. The hero's cursor separation and the Measure figure are gated in JS as well
+ * (the dimension arrow still appears — only the motion bows out). The static, Figma-exact
+ * composition is always the truthful fallback.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

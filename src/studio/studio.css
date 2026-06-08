@@ -1,0 +1,35 @@
+/*
+ * Studio layout. Desktop-primary: a fixed-width rail beside the canvas. On narrow widths
+ * (≤720px) the rail stacks under the canvas and the whole surface scrolls, so the studio
+ * stays usable on a phone instead of crushing the rail.
+ */
+.studio-shell {
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+}
+
+.studio-rail {
+  width: 268px;
+  flex-shrink: 0;
+  height: 100%;
+}
+
+@media (max-width: 720px) {
+  .studio-shell {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .studio-rail {
+    width: 100%;
+    height: auto;
+    border-right: none;
+    border-bottom: 1px solid rgba(244, 240, 232, 0.22);
+  }
+
+  /* the canvas field gets a sensible min-height so it isn't squeezed flat under the rail */
+  .studio-stage {
+    min-height: 70vh;
+  }
+}

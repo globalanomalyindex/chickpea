@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { imagePaletteToPalette } from './imagePalette'
 import { buildComposition } from './composition'
 import { buildAnchoredGrid } from '../grid/anchor'
+import { luminance } from '../palette/hsl'
 
 describe('imagePaletteToPalette', () => {
   const colors = [
@@ -30,9 +31,17 @@ describe('imagePaletteToPalette', () => {
     const grid = buildAnchoredGrid([{ axis: 'v', pos: 0.5 }], 1)
     const comp = buildComposition(grid, pal, { seed: 1, textChance: 0 })
     expect(comp.modules.length).toBe(grid.modules.length)
-    expect(comp.background).toBe(pal[pal.length - 1].hex)
-    // every module got a color from the palette
+    // background is the most tonally-distinct palette member (contrast pick), and is a
+    // genuine palette color
     const hexes = new Set(pal.map((c) => c.hex))
+    expect(hexes.has(comp.background)).toBe(true)
+    const lums = pal.map((c) => luminance(c.rgb))
+    const mean = lums.reduce((a, b) => a + b, 0) / lums.length
+    const expectedBg = pal.reduce((best, c) =>
+      Math.abs(luminance(c.rgb) - mean) > Math.abs(luminance(best.rgb) - mean) ? c : best,
+    )
+    expect(comp.background).toBe(expectedBg.hex)
+    // every module got a color from the palette
     for (const m of comp.modules) expect(hexes.has(m.color)).toBe(true)
   })
 })

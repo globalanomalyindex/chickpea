@@ -3,6 +3,7 @@ import { buildComposition } from './composition'
 import { generate } from '../grid/generators'
 import { generateModular } from '../grid/generators/modular'
 import { generatePalette } from '../palette/generate'
+import { luminance } from '../palette/hsl'
 
 describe('buildComposition', () => {
   it('colors every module and is deterministic', () => {
@@ -38,5 +39,17 @@ describe('buildComposition', () => {
     expect(grid.modules.length).toBe(20)
     // every palette colour appears at least once — the grid is not mostly one colour
     expect(new Set(comp.modules.map((m) => m.color)).size).toBe(6)
+  })
+
+  it('picks the background with the largest luminance distance from the palette mean', () => {
+    const grid = generate('recursive', 42)
+    const pal = generatePalette(42, 6)
+    const comp = buildComposition(grid, pal, { seed: 42 })
+    const lums = pal.map((c) => luminance(c.rgb))
+    const mean = lums.reduce((a, b) => a + b, 0) / lums.length
+    const expected = pal.reduce((best, c) =>
+      Math.abs(luminance(c.rgb) - mean) > Math.abs(luminance(best.rgb) - mean) ? c : best,
+    )
+    expect(comp.background).toBe(expected.hex)
   })
 })

@@ -41,10 +41,8 @@ const KIND_LABEL: Record<GeneratorKind, string> = {
 export function GeneratorControls(p: Props) {
   return (
     <aside
+      className="studio-rail"
       style={{
-        width: 268,
-        flexShrink: 0,
-        height: '100%',
         boxSizing: 'border-box',
         padding: '32px 28px',
         display: 'flex',
