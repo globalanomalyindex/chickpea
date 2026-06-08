@@ -18,23 +18,30 @@ const LINKS: { to: string; label: string }[] = [
 export function CornerNav({ tone = 'light' }: { tone?: 'light' | 'dark' }) {
   const { pathname } = useLocation()
   const ink = tone === 'dark' ? '#5d646b' : CREAM
+  // Same hue as each surface's background, translucent + blurred: invisible over the
+  // solid-slate hero/studio, but it masks body text scrolling under the nav on the case study.
+  const backdrop = tone === 'dark' ? 'rgba(244, 240, 232, 0.62)' : 'rgba(93, 100, 107, 0.62)'
 
   return (
     <nav
       aria-label="Surfaces"
       style={{
         position: 'fixed',
-        top: 20,
-        right: 22,
+        top: 16,
+        right: 16,
         zIndex: 50,
         display: 'flex',
         alignItems: 'center',
         gap: 14,
+        padding: '7px 13px',
+        borderRadius: 999,
+        background: backdrop,
+        backdropFilter: 'blur(8px)',
+        WebkitBackdropFilter: 'blur(8px)',
         fontFamily: 'var(--font-mono)',
         fontSize: 11,
         letterSpacing: '0.16em',
         textTransform: 'uppercase',
-        mixBlendMode: 'normal',
       }}
     >
       {LINKS.map((l, i) => {
