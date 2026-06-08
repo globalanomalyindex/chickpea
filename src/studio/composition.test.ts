@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { buildComposition } from './composition'
 import { generate } from '../grid/generators'
+import { generateModular } from '../grid/generators/modular'
 import { generatePalette } from '../palette/generate'
 
 describe('buildComposition', () => {
@@ -28,5 +29,14 @@ describe('buildComposition', () => {
     const comp = buildComposition(grid, pal, { seed: 5, textChance: 0.25 })
     const withText = comp.modules.filter((m) => m.text).length
     expect(withText).toBeLessThanOrEqual(Math.ceil(comp.modules.length * 0.6))
+  })
+
+  it('spreads the full palette across a many-cell grid (no collapse to one colour)', () => {
+    const grid = generateModular(1, { kind: 'modular', columns: 5, rows: 4, margin: 0.05, gutter: 0.02 })
+    const pal = generatePalette(1, 6)
+    const comp = buildComposition(grid, pal, { seed: 1 })
+    expect(grid.modules.length).toBe(20)
+    // every palette colour appears at least once — the grid is not mostly one colour
+    expect(new Set(comp.modules.map((m) => m.color)).size).toBe(6)
   })
 })
