@@ -34,3 +34,23 @@ export function hexToRgb(hex: string): [number, number, number] {
   const n = parseInt(hex.slice(1), 16)
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
 }
+
+/** Convert an RGB triple to HSL: hue in degrees [0,360), s and l in [0,1]. */
+export function rgbToHsl([r, g, b]: [number, number, number]): [number, number, number] {
+  const rn = r / 255
+  const gn = g / 255
+  const bn = b / 255
+  const max = Math.max(rn, gn, bn)
+  const min = Math.min(rn, gn, bn)
+  const l = (max + min) / 2
+  const d = max - min
+  if (d === 0) return [0, 0, l]
+  const s = d / (1 - Math.abs(2 * l - 1))
+  let h: number
+  if (max === rn) h = ((gn - bn) / d) % 6
+  else if (max === gn) h = (bn - rn) / d + 2
+  else h = (rn - gn) / d + 4
+  h *= 60
+  if (h < 0) h += 360
+  return [h, s, l]
+}

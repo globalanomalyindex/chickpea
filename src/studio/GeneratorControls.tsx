@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { Grid, GeneratorKind } from '../grid/types'
+import type { StudioMode } from './Studio'
 import { GENERATOR_KINDS } from '../grid/generators'
 
 const CREAM = '#f4f0e8'
@@ -7,15 +8,22 @@ const STEEL = '#4e6a7a'
 const HAIR = 'rgba(244,240,232,0.22)'
 
 interface Props {
+  mode: StudioMode
   generator: GeneratorKind
   seed: number
   grid: Grid
   revealOn: boolean
   textOn: boolean
+  /** image mode, cuts committed → showing the anchored composition. */
+  imageCommitted: boolean
+  /** image mode, at the upload/cut step. */
+  bisecting: boolean
+  onMode: (m: StudioMode) => void
   onGenerator: (k: GeneratorKind) => void
   onSeed: (s: number) => void
   onGenerate: () => void
   onIterate: () => void
+  onReBisect: () => void
   onToggleReveal: () => void
   onToggleText: () => void
   onExportPng: () => void
@@ -65,41 +73,91 @@ export function GeneratorControls(p: Props) {
         </div>
       </header>
 
-      <Section label="family">
+      <Section label="source">
         <Segmented
-          options={GENERATOR_KINDS.map((k) => ({ value: k, label: KIND_LABEL[k] }))}
-          value={p.generator}
-          onChange={(v) => p.onGenerator(v as GeneratorKind)}
+          options={[
+            { value: 'scratch', label: 'from scratch' },
+            { value: 'image', label: 'from image' },
+          ]}
+          value={p.mode}
+          onChange={(v) => p.onMode(v as StudioMode)}
         />
       </Section>
 
-      <Section label="seed">
-        <SeedField seed={p.seed} onSeed={p.onSeed} />
-        <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-          <ActionButton label="Generate" hint="new seed" onClick={p.onGenerate} primary />
-          <ActionButton label="Iterate" hint="seed + 1" onClick={p.onIterate} />
-        </div>
-      </Section>
+      {p.mode === 'scratch' && (
+        <Section label="family">
+          <Segmented
+            options={GENERATOR_KINDS.map((k) => ({ value: k, label: KIND_LABEL[k] }))}
+            value={p.generator}
+            onChange={(v) => p.onGenerator(v as GeneratorKind)}
+          />
+        </Section>
+      )}
 
-      <Section label="overlay">
-        <Toggle label="Reveal math" on={p.revealOn} onClick={p.onToggleReveal} />
-        <Toggle label="Type" on={p.textOn} onClick={p.onToggleText} />
-      </Section>
+      {p.imageCommitted && (
+        <Section label="bisection">
+          <div
+            style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: 11.5,
+              lineHeight: 1.5,
+              opacity: 0.7,
+              marginBottom: 10,
+            }}
+          >
+            cuts are anchored to ratio positions; Generate re-seeds the math around them.
+          </div>
+          <ActionButton label="↶ re-bisect" hint="upload / re-cut" onClick={p.onReBisect} />
+        </Section>
+      )}
 
-      <Section label="readout">
-        <Readout k="modules" v={String(p.grid.modules.length)} />
-        <Readout k="guides" v={String(p.grid.guides.length)} />
-        {p.grid.ratios.slice(0, 4).map((r, i) => (
-          <Readout key={i} k={r.name} v={r.value.toFixed(3)} />
-        ))}
-      </Section>
+      {!p.bisecting && (
+        <>
+          <Section label="seed">
+            <SeedField seed={p.seed} onSeed={p.onSeed} />
+            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+              <ActionButton label="Generate" hint="new seed" onClick={p.onGenerate} primary />
+              <ActionButton label="Iterate" hint="seed + 1" onClick={p.onIterate} />
+            </div>
+          </Section>
 
-      <Section label="export">
-        <div style={{ display: 'flex', gap: 8 }}>
-          <ActionButton label="PNG" onClick={p.onExportPng} disabled={p.busy} grow />
-          <ActionButton label="SVG" onClick={p.onExportSvg} disabled={p.busy} grow />
-        </div>
-      </Section>
+          <Section label="overlay">
+            <Toggle label="Reveal math" on={p.revealOn} onClick={p.onToggleReveal} />
+            <Toggle label="Type" on={p.textOn} onClick={p.onToggleText} />
+          </Section>
+
+          <Section label="readout">
+            <Readout k="modules" v={String(p.grid.modules.length)} />
+            <Readout k="guides" v={String(p.grid.guides.length)} />
+            {p.grid.ratios.slice(0, 4).map((r, i) => (
+              <Readout key={i} k={r.name} v={r.value.toFixed(3)} />
+            ))}
+          </Section>
+
+          <Section label="export">
+            <div style={{ display: 'flex', gap: 8 }}>
+              <ActionButton label="PNG" onClick={p.onExportPng} disabled={p.busy} grow />
+              <ActionButton label="SVG" onClick={p.onExportSvg} disabled={p.busy} grow />
+            </div>
+          </Section>
+        </>
+      )}
+
+      {p.bisecting && (
+        <Section label="bisect">
+          <div
+            style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: 11.5,
+              lineHeight: 1.55,
+              opacity: 0.7,
+            }}
+          >
+            upload an image, then enter it from an edge to arm a cut: top/bottom → vertical,
+            left/right → horizontal. click to drop. commit the cuts to generate variations.
+          </div>
+        </Section>
+      )}
 
       <div style={{ flex: 1 }} />
       <a
