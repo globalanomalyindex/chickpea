@@ -1,12 +1,11 @@
 import { useStageScale } from './useStageScale'
 import { ARTBOARD, HERO_COLORS, TEXT_BLOCKS, GLYPHS, SKILLS_RULE, type TextBlock } from './heroLayout'
-import { MeasureLayer } from './MeasureLayer'
-import { DragLayer } from './DragLayer'
+import { MorphGrid } from './MorphGrid'
+import { InteractionLayer } from './InteractionLayer'
 import { StudioGlyphLink } from './StudioGlyphLink'
 import { CornerNav } from '../app/CornerNav'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-export type HeroMode = 'measure' | 'layout'
 /** Transient/persisted placement nudge per element id, from its composition origin. */
 export type Placement = Record<string, { dx: number; dy: number }>
 
@@ -55,21 +54,22 @@ export function Hero() {
   const stage = useStageScale()
   const stageRef = useRef<HTMLDivElement>(null)
 
-  const [mode, setMode] = useState<HeroMode>('measure')
   const [placement, setPlacement] = useState<Placement>({})
+
+  /** 0..1 interaction intensity + live cursor — shared between the InteractionLayer (writer)
+   * and the MorphGrid (reader), purely via refs so neither re-renders in the hot path. */
+  const activityRef = useRef(0)
+  const cursorRef = useRef<{ x: number; y: number } | null>(null)
 
   const reset = useCallback(() => setPlacement({}), [])
 
-  // Keyboard shortcut: `L` toggles layout mode, `R` resets placements (when not typing).
+  // Keyboard shortcut: `R` resets placements (when not typing). No mode toggle — one mode.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const t = e.target as HTMLElement | null
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
       if (e.metaKey || e.ctrlKey || e.altKey) return
-      if (e.key === 'l' || e.key === 'L') {
-        e.preventDefault()
-        setMode((m) => (m === 'measure' ? 'layout' : 'measure'))
-      } else if (e.key === 'r' || e.key === 'R') {
+      if (e.key === 'r' || e.key === 'R') {
         e.preventDefault()
         reset()
       }
@@ -78,12 +78,14 @@ export function Hero() {
     return () => window.removeEventListener('keydown', onKey)
   }, [reset])
 
+  const hasPlacements = Object.keys(placement).length > 0
+
   return (
     <main
       style={{ position: 'fixed', inset: 0, background: HERO_COLORS.slate, overflow: 'hidden' }}
     >
       <CornerNav />
-      <ModeToggle mode={mode} setMode={setMode} reset={reset} hasPlacements={Object.keys(placement).length > 0} />
+      {hasPlacements && <ResetControl reset={reset} />}
       <div
         ref={stageRef}
         style={{
@@ -96,6 +98,8 @@ export function Hero() {
           transformOrigin: 'top left',
         }}
       >
+        <MorphGrid activityRef={activityRef} cursorRef={cursorRef} />
+
         {TEXT_BLOCKS.map((b) => (
           <div key={b.id} style={blockStyle(b)} data-block={b.id}>
             {b.lines.map((line, li) =>
@@ -150,44 +154,25 @@ export function Hero() {
           }}
         />
 
-        {mode === 'measure' ? (
-          <MeasureLayer stage={stage} stageRef={stageRef} placement={placement} />
-        ) : (
-          <DragLayer stage={stage} stageRef={stageRef} placement={placement} setPlacement={setPlacement} />
-        )}
+        <InteractionLayer
+          stage={stage}
+          stageRef={stageRef}
+          placement={placement}
+          setPlacement={setPlacement}
+          activityRef={activityRef}
+          cursorRef={cursorRef}
+        />
       </div>
     </main>
   )
 }
 
 /**
- * A quiet mono corner control mirroring the CornerNav language: `measure · layout`, plus a
- * reset that appears only when placements exist. Keyboard-focusable; the `L`/`R` shortcuts
- * are the fast path.
+ * A quiet mono corner control mirroring the CornerNav language: a single `reset` that appears
+ * only when placements exist. The `R` shortcut is the fast path.
  */
-function ModeToggle({
-  mode,
-  setMode,
-  reset,
-  hasPlacements,
-}: {
-  mode: HeroMode
-  setMode: (m: HeroMode) => void
-  reset: () => void
-  hasPlacements: boolean
-}) {
+function ResetControl({ reset }: { reset: () => void }) {
   const ink = HERO_COLORS.cream
-  const item = (m: HeroMode): React.CSSProperties => ({
-    color: ink,
-    background: 'none',
-    border: 'none',
-    padding: 0,
-    cursor: 'pointer',
-    font: 'inherit',
-    opacity: mode === m ? 1 : 0.5,
-    transition: 'opacity 160ms ease',
-  })
-
   return (
     <div
       style={{
@@ -211,33 +196,20 @@ function ModeToggle({
     >
       <button
         type="button"
-        aria-pressed={mode === 'measure'}
-        style={item('measure')}
-        onClick={() => setMode('measure')}
+        onClick={reset}
+        style={{
+          color: ink,
+          background: 'none',
+          border: 'none',
+          padding: 0,
+          cursor: 'pointer',
+          font: 'inherit',
+          opacity: 0.7,
+          transition: 'opacity 160ms ease',
+        }}
       >
-        measure
+        reset
       </button>
-      <span aria-hidden style={{ width: 10, height: 1, background: ink, opacity: 0.3 }} />
-      <button
-        type="button"
-        aria-pressed={mode === 'layout'}
-        style={item('layout')}
-        onClick={() => setMode('layout')}
-      >
-        layout
-      </button>
-      {hasPlacements && (
-        <>
-          <span aria-hidden style={{ width: 10, height: 1, background: ink, opacity: 0.3 }} />
-          <button
-            type="button"
-            style={{ ...item('measure'), opacity: 0.7 }}
-            onClick={reset}
-          >
-            reset
-          </button>
-        </>
-      )}
     </div>
   )
 }
