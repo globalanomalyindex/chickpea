@@ -26,6 +26,11 @@ export function kmeans(pixels: [number, number, number][], k: number, seed: numb
     centroids.push([...pixels[idx]])
   }
   const assign = new Array(pixels.length).fill(0)
+  // sums[c] = [r, g, b, count] for the most recent assignment pass; sums[c][3]
+  // is the per-cluster member count we reuse as the final weight below. Seeded
+  // from the initial all-zero `assign` so the result matches even when iters===0.
+  let sums = centroids.map(() => [0, 0, 0, 0])
+  for (const a of assign) sums[a][3]++
   for (let it = 0; it < iters; it++) {
     // assign
     for (let p = 0; p < pixels.length; p++) {
@@ -41,7 +46,7 @@ export function kmeans(pixels: [number, number, number][], k: number, seed: numb
       assign[p] = best
     }
     // update
-    const sums = centroids.map(() => [0, 0, 0, 0])
+    sums = centroids.map(() => [0, 0, 0, 0])
     for (let p = 0; p < pixels.length; p++) {
       const a = assign[p]
       sums[a][0] += pixels[p][0]
@@ -54,12 +59,10 @@ export function kmeans(pixels: [number, number, number][], k: number, seed: numb
         centroids[c] = [sums[c][0] / sums[c][3], sums[c][1] / sums[c][3], sums[c][2] / sums[c][3]]
     }
   }
-  const counts = centroids.map(() => 0)
-  for (const a of assign) counts[a]++
   return centroids
     .map((c, i) => ({
       rgb: [Math.round(c[0]), Math.round(c[1]), Math.round(c[2])] as [number, number, number],
-      weight: counts[i],
+      weight: sums[i][3],
     }))
     .filter((c) => c.weight > 0)
     .sort((a, b) => b.weight - a.weight)

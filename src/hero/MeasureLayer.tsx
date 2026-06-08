@@ -28,7 +28,13 @@ export function MeasureLayer({ stage, stageRef }: Props) {
   const applied = useRef<Map<string, number>>(new Map())
 
   useEffect(() => {
-    reduced.current = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
+    reduced.current = mq.matches
+    const onChange = (e: MediaQueryListEvent) => {
+      reduced.current = e.matches
+    }
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
   }, [])
 
   /**

@@ -10,7 +10,7 @@ export interface Cut {
 
 /**
  * Ratio-correct cut positions the human cuts snap to: the half, the thirds, the golden
- * sections (0.382 / 0.618), the quarters, the √2 sections (0.236 / 0.764) and the fifths.
+ * sections (0.382 / 0.618), the quarters, the √5 sections (0.236 / 0.764) and the fifths.
  * These are the only positions an anchor guide may land on, so every committed cut is
  * provably one of the design ratios.
  */
@@ -133,14 +133,27 @@ export function buildAnchoredGrid(cuts: Cut[], seed: number): Grid {
   }
 }
 
-/** A readable label for a snapped ratio position (for reveal annotations). */
+/**
+ * A readable label for a snapped cut *position* (for reveal annotations).
+ *
+ * The annotation prints `name value.toFixed(3)`, where `value` is the position itself
+ * (e.g. 0.618), so the name must denote that same position — not the irrational ratio the
+ * section is *derived* from. We therefore label each snap point by the fraction or section
+ * it lands on: "1/φ 0.618" (the major golden section, 1/φ ≈ 0.618) is truthful, whereas
+ * "φ 0.618" would not be (φ ≈ 1.618). Symmetric points get the complementary fraction so
+ * the label and number always agree.
+ */
 function ratioName(pos: number): string {
   if (near(pos, 0.5)) return '½'
   if (near(pos, 1 / 3)) return '⅓'
   if (near(pos, 2 / 3)) return '⅔'
-  if (near(pos, 0.382) || near(pos, 0.618)) return 'φ'
+  if (near(pos, 0.382)) return '1−1/φ' // minor golden section ≈ 0.382
+  if (near(pos, 0.618)) return '1/φ' // major golden section ≈ 0.618
   if (near(pos, 0.25)) return '¼'
   if (near(pos, 0.75)) return '¾'
-  if (near(pos, 0.236) || near(pos, 0.764)) return '√2'
+  if (near(pos, 0.236)) return '√5−2' // ≈ 0.236
+  if (near(pos, 0.764)) return '3−√5' // complement of √5−2, ≈ 0.764
+  if (near(pos, 0.2)) return '⅕'
+  if (near(pos, 0.8)) return '⅘'
   return pos.toFixed(3)
 }

@@ -27,9 +27,19 @@ export function MeasureFigure() {
   const [active, setActive] = useState<number | null>(null)
   const [gap, setGap] = useState<Gap | null>(null)
   const reduced = useRef(false)
+  /** Bumped when the reduced-motion media query changes, to re-render with the new setting. */
+  const [reducedTick, setReducedTick] = useState(0)
 
   useLayoutEffect(() => {
-    reduced.current = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
+    reduced.current = mq.matches
+    const onChange = (e: MediaQueryListEvent) => {
+      reduced.current = e.matches
+      // re-render so render-time letter offsets and the gap readout pick up the new setting
+      setReducedTick((t) => t + 1)
+    }
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
   }, [])
 
   // measure the active seam in container coordinates whenever it changes. We read the
@@ -53,7 +63,7 @@ export function MeasureFigure() {
       center: (lr.right + rr.left) / 2 - base.left,
       value: Math.round(naturalGap + separation),
     })
-  }, [active])
+  }, [active, reducedTick])
 
   return (
     <Figure
