@@ -1,18 +1,34 @@
 import { useEffect, useRef, useState } from 'react'
 import { clientToStage, type Stage } from './stageScale'
-import { buildSeams, nearestSeam, separationOffset, type Box, type Seam, type SeamGroup } from './seams'
+import {
+  buildMeasurements,
+  selectMeasurements,
+  cursorRelevance,
+  elementOffsets,
+  type Pt,
+  type Selected,
+} from './measurements'
+import { ARTBOARD, HERO_COLORS } from './heroLayout'
 import { DimensionArrow } from '../components/DimensionArrow'
-import { HERO_COLORS } from './heroLayout'
+import { measureBoxes, queryReactiveEls, applyTransform, type PlacementMap } from './heroDom'
 
-const RADIUS = 90
+/** Cursor proximity radius (artboard px) within which a measurement lights up. */
+const RADIUS = 150
+/** Transient separation amount (artboard px) applied to nudged elements at full strength. */
 const DELTA = 26
-const EASE = 'transform 260ms cubic-bezier(.22,1,.36,1)'
+/** Calm, not chaotic: never more than this many arrows at once. */
+const MAX_COUNT = 4
+/** Skip margins larger than this (artboard px): a word sitting far from a border has a huge
+ * margin whose arrow would span most of the page — overwhelming, not informative. Only the
+ * tight breathing-room margins around words surface; the big negative space is the bloom's. */
+const MAX_MARGIN = 240
 /** The empty upper field (slate) where the grid blooms. Below this is the composition. */
 const BLOOM_MAX_Y = 540
 
 interface Props {
   stage: Stage
   stageRef: React.RefObject<HTMLDivElement>
+  placement: PlacementMap
 }
 
 interface Bloom {
@@ -20,12 +36,13 @@ interface Bloom {
   y: number
 }
 
-export function MeasureLayer({ stage, stageRef }: Props) {
-  const [seam, setSeam] = useState<Seam | null>(null)
+export function MeasureLayer({ stage, stageRef, placement }: Props) {
+  const [selected, setSelected] = useState<Selected[]>([])
+  const [cursor, setCursor] = useState<Pt | null>(null)
   const [bloom, setBloom] = useState<Bloom | null>(null)
   const reduced = useRef(false)
-  /** Currently-applied separation offset per element id, so re-measurement yields resting coords. */
-  const applied = useRef<Map<string, number>>(new Map())
+  /** Currently-applied translate per element id, so re-measurement yields resting coords. */
+  const applied = useRef<Map<string, { dx: number; dy: number }>>(new Map())
 
   useEffect(() => {
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
@@ -37,56 +54,34 @@ export function MeasureLayer({ stage, stageRef }: Props) {
     return () => mq.removeEventListener('change', onChange)
   }, [])
 
-  /**
-   * Measure rendered boxes in ARTBOARD coordinates. We express each element's
-   * getBoundingClientRect relative to the (scaled) stage root rect, then divide by
-   * stage.scale. Any separation transform currently applied to an element is subtracted
-   * back out so we always build seams from the resting composition, never a moving target.
-   */
-  function measureGroups(): SeamGroup[] {
-    const root = stageRef.current
-    if (!root) return []
-    const stageRect = root.getBoundingClientRect()
-    const toBox = (el: Element, id: string, axis: 'x' | 'y'): Box => {
-      const r = el.getBoundingClientRect()
-      const off = applied.current.get(id) ?? 0
-      const x = (r.left - stageRect.left) / stage.scale - (axis === 'x' ? off : 0)
-      const y = (r.top - stageRect.top) / stage.scale - (axis === 'y' ? off : 0)
-      return { id, x, y, w: r.width / stage.scale, h: r.height / stage.scale }
-    }
-
-    const groups: SeamGroup[] = []
-
-    // title: per-letter spans, sorted by x -> vertical seams
-    const letters = [...root.querySelectorAll<HTMLElement>('[data-letter^="title-"]')]
-      .map((el) => toBox(el, el.dataset.letter!, 'x'))
-      .sort((a, b) => a.x - b.x)
-    if (letters.length > 1) groups.push({ group: 'title', boxes: letters, axis: 'x' })
-
-    // blocks: block wrappers, sorted by y -> horizontal seams
-    const blocks = [...root.querySelectorAll<HTMLElement>('[data-block]')]
-      .map((el) => toBox(el, el.dataset.block!, 'y'))
-      .sort((a, b) => a.y - b.y)
-    if (blocks.length > 1) groups.push({ group: 'blocks', boxes: blocks, axis: 'y' })
-
-    return groups
-  }
-
-  // Pointer tracking -> active seam + grid bloom, throttled to rAF.
+  // Pointer tracking -> ranked measurements + grid bloom, throttled to rAF.
   useEffect(() => {
+    const root = stageRef.current
+    if (!root) return
     let raf = 0
     function onMove(e: PointerEvent) {
       cancelAnimationFrame(raf)
       raf = requestAnimationFrame(() => {
+        const r = stageRef.current
+        if (!r) return
         const p = clientToStage(e.clientX, e.clientY, stage)
-        const hit = nearestSeam(buildSeams(measureGroups()), p, RADIUS)
-        setSeam(hit)
-        // grid blooms only in the empty upper field and only when no seam is active
-        setBloom(!hit && p.y < BLOOM_MAX_Y ? { x: p.x, y: p.y } : null)
+        const boxes = measureBoxes(r, stage, applied.current)
+        const candidates = buildMeasurements(boxes, ARTBOARD).filter(
+          (m) => m.type !== 'margin' || m.dist <= MAX_MARGIN,
+        )
+        const sel = selectMeasurements(candidates, p, {
+          maxCount: MAX_COUNT,
+          radius: RADIUS,
+        })
+        setSelected(sel)
+        setCursor(p)
+        // grid blooms only in the empty upper field and only when nothing is selected
+        setBloom(sel.length === 0 && p.y < BLOOM_MAX_Y ? { x: p.x, y: p.y } : null)
       })
     }
     function onLeave() {
-      setSeam(null)
+      setSelected([])
+      setCursor(null)
       setBloom(null)
     }
     window.addEventListener('pointermove', onMove)
@@ -98,65 +93,107 @@ export function MeasureLayer({ stage, stageRef }: Props) {
       window.removeEventListener('blur', onLeave)
       cancelAnimationFrame(raf)
     }
-  }, [stage])
+  }, [stage, stageRef])
 
-  // Apply separation transforms to the actual letter/block elements.
+  // Apply placement (persisted) + transient hover nudges to the real elements. Anything
+  // not in the current offset map springs back to its placement (or identity). Reduced
+  // motion keeps placements but skips the transient nudges.
   useEffect(() => {
     const root = stageRef.current
     if (!root) return
-    const active = seam && !reduced.current ? seam : null
 
-    const letters = [...root.querySelectorAll<HTMLElement>('[data-letter^="title-"]')]
-    const titleIds = letters.map((el) => el.dataset.letter!)
-    for (const el of letters) {
-      const id = el.dataset.letter!
-      const off =
-        active && active.group === 'title' ? separationOffset(active, id, titleIds, DELTA) : 0
-      applied.current.set(id, off)
-      el.style.transition = EASE
-      el.style.transform = off ? `translateX(${off}px)` : ''
-    }
+    const nudges = reduced.current
+      ? new Map<string, { dx: number; dy: number }>()
+      : elementOffsets(selected, DELTA)
+    const els = queryReactiveEls(root)
+    const all: { el: HTMLElement; id: string }[] = [
+      ...els.letters.map((el) => ({ el, id: el.dataset.letter! })),
+      ...els.words.map((el) => ({ el, id: el.dataset.word! })),
+      ...els.blocks.map((el) => ({ el, id: el.dataset.block! })),
+    ]
 
-    const blocks = [...root.querySelectorAll<HTMLElement>('[data-block]')].sort(
-      (a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top,
-    )
-    const blockIds = blocks.map((el) => el.dataset.block!)
-    for (const el of blocks) {
-      const id = el.dataset.block!
-      const off =
-        active && active.group === 'blocks' ? separationOffset(active, id, blockIds, DELTA) : 0
-      applied.current.set(id, off)
-      el.style.transition = EASE
-      el.style.transform = off ? `translateY(${off}px)` : ''
+    for (const { el, id } of all) {
+      const place = placement[id] ?? { dx: 0, dy: 0 }
+      const nudge = nudges.get(id) ?? { dx: 0, dy: 0 }
+      applyTransform(el, id, place.dx + nudge.dx, place.dy + nudge.dy, applied.current)
     }
-  }, [seam, stageRef])
+  }, [selected, placement, stageRef])
 
   return (
     <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
       {bloom && <GridBloom x={bloom.x} y={bloom.y} />}
-      {seam && <SeamArrow seam={seam} />}
+      {cursor &&
+        selected.map((s) => <MeasureArrow key={s.m.id} sel={s} cursor={cursor} />)}
     </div>
   )
 }
 
-/** The dimension arrow drawn across the active seam, growing with the separation. */
-function SeamArrow({ seam }: { seam: Seam }) {
-  const arrowLen = seam.gap + DELTA
+/**
+ * One cursor-tracked dimension arrow for a selected measurement. The draw point follows the
+ * cursor along the gap/margin (recomputed live via cursorRelevance.track); opacity fades
+ * with strength so the primary reads full and secondaries sit back.
+ */
+function MeasureArrow({ sel, cursor }: { sel: Selected; cursor: Pt }) {
+  const { m, strength } = sel
+  const c = HERO_COLORS.cream
+  const opacity = Math.max(0.2, strength)
+  const track = cursorRelevance(m, cursor, RADIUS).track
+
+  if (m.type === 'gap') {
+    // The arrow measures the gap AS IT OPENS under the symmetric nudge (resting gap + the
+    // separation), centered on the gap and tracking the cursor along the shared edge. This
+    // keeps the readout a clean positive "space you've opened" even where the resting boxes
+    // are tightly kerned or overlapping (which would otherwise read as a negative number).
+    const opened = Math.max(0, m.gap + DELTA * strength)
+    if (opened < 3) return null
+    if (m.axis === 'v') {
+      const mid = (m.span.x1 + m.span.x2) / 2
+      return (
+        <ArrowAt left={mid - opened / 2} top={track.y}>
+          <DimensionArrow orientation="h" length={opened} label={String(Math.round(opened))} color={c} opacity={opacity} />
+        </ArrowAt>
+      )
+    }
+    const mid = (m.span.y1 + m.span.y2) / 2
+    return (
+      <ArrowAt left={track.x} top={mid - opened / 2}>
+        <DimensionArrow orientation="v" length={opened} label={String(Math.round(opened))} color={c} opacity={opacity} />
+      </ArrowAt>
+    )
+  }
+
+  // margin: an arrow from the page border to the element edge, labeled with the margin size.
+  if (m.side === 'left' || m.side === 'right') {
+    const len = Math.abs(m.span.x2 - m.span.x1)
+    const left = Math.min(m.span.x1, m.span.x2)
+    return (
+      <ArrowAt left={left} top={track.y}>
+        <DimensionArrow orientation="h" length={len} label={String(Math.round(m.dist))} color={c} opacity={opacity} />
+      </ArrowAt>
+    )
+  }
+  const len = Math.abs(m.span.y2 - m.span.y1)
+  const top = Math.min(m.span.y1, m.span.y2)
+  return (
+    <ArrowAt left={track.x} top={top}>
+      <DimensionArrow orientation="v" length={len} label={String(Math.round(m.dist))} color={c} opacity={opacity} />
+    </ArrowAt>
+  )
+}
+
+/** Positions an arrow at an artboard point. The position tracks the cursor with a fast,
+ * lag-free curve (short linear so it reads as immediate, not floaty). */
+function ArrowAt({ left, top, children }: { left: number; top: number; children: React.ReactNode }) {
   return (
     <div
       style={{
         position: 'absolute',
-        left: seam.axis === 'v' ? seam.center.x - arrowLen / 2 : seam.center.x,
-        top: seam.axis === 'v' ? seam.center.y : seam.center.y - arrowLen / 2,
-        transition: 'left 260ms cubic-bezier(.22,1,.36,1), top 260ms cubic-bezier(.22,1,.36,1)',
+        left,
+        top,
+        transition: 'left 90ms linear, top 90ms linear',
       }}
     >
-      <DimensionArrow
-        orientation={seam.axis === 'v' ? 'h' : 'v'}
-        length={arrowLen}
-        label={String(Math.round(seam.gap + DELTA))}
-        color={HERO_COLORS.cream}
-      />
+      {children}
     </div>
   )
 }
