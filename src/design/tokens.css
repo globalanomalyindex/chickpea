@@ -1,0 +1,21 @@
+:root {
+  /* palette — from the Figma hero */
+  --slate: #5d646b;
+  --cream: #f4f0e8;
+  --steel: #4e6a7a;
+
+  /* type */
+  --font-display: 'Mafinest', Georgia, serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
+
+  /* hairline */
+  --hairline: 1px;
+
+  /* spacing scale (px) */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-6: 24px;
+  --s-8: 32px;
+}
