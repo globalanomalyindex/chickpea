@@ -7,6 +7,7 @@ import { generateNature, defaultNatureParams } from '../grid/generators/nature'
 import { buildAnchoredGrid, type Cut } from '../grid/anchor'
 import { encodeDescriptor, decodeDescriptor } from '../grid/serialize'
 import { generatePalette } from '../palette/generate'
+import { resolveStyle, type PaletteStyle } from '../palette/engine'
 import type { ColorWeight } from '../palette/kmeans'
 import { buildComposition } from './composition'
 import { imagePaletteToPalette } from './imagePalette'
@@ -22,7 +23,6 @@ import { CornerNav } from '../app/CornerNav'
 import './studio.css'
 
 const SLATE = '#5d646b'
-const PALETTE_COUNT = 6
 const EXPORT_PX = 1600
 
 export type StudioMode = 'scratch' | 'image'
@@ -49,10 +49,12 @@ export interface Doc {
   columns: number // modular
   rows: number // modular
   depth: number // nature
+  paletteStyle: PaletteStyle // color mood
+  colorCount: number // how many colors in the palette
 }
 
-function defaultDoc(generator: GeneratorKind, seed: number): Doc {
-  return { generator, seed, targetModules: 9, columns: 6, rows: 4, depth: 6 }
+function defaultDoc(generator: GeneratorKind, seed: number, paletteStyle: PaletteStyle, colorCount: number): Doc {
+  return { generator, seed, targetModules: 9, columns: 6, rows: 4, depth: 6, paletteStyle, colorCount }
 }
 
 interface History {
@@ -73,9 +75,13 @@ export function Studio() {
   const [reBisecting, setReBisecting] = useState(false)
 
   // generative state + undo/redo history (a single snapshot stack)
-  const [hist, setHist] = useState<History>(() => ({ doc: defaultDoc(initial.kind, initial.seed), past: [], future: [] }))
+  const [hist, setHist] = useState<History>(() => ({
+    doc: defaultDoc(initial.kind, initial.seed, initial.style, initial.count),
+    past: [],
+    future: [],
+  }))
   const doc = hist.doc
-  const { generator, seed, targetModules, columns, rows, depth } = doc
+  const { generator, seed, targetModules, columns, rows, depth, paletteStyle, colorCount } = doc
   // coalesce rapid same-field edits (slider drags, repeated taps) into ONE undo step
   const coalesceKey = useRef<string | null>(null)
   const coalesceAt = useRef(0)
@@ -119,10 +125,10 @@ export function Studio() {
   // keep (generator, seed) in the URL query so any state is shareable
   useEffect(() => {
     const next = new URLSearchParams(params)
-    encodeDescriptor({ kind: generator, seed }, next)
+    encodeDescriptor({ kind: generator, seed, style: paletteStyle, count: colorCount }, next)
     if (next.toString() !== params.toString()) setParams(next, { replace: true })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [generator, seed])
+  }, [generator, seed, paletteStyle, colorCount])
 
   // In image mode the grid is the anchored grid (cuts fixed, math seed-varied); in scratch
   // mode it is the chosen generator. Either way Generate/Iterate re-seed the variations.
@@ -136,8 +142,8 @@ export function Studio() {
 
   const palette = useMemo(() => {
     if (mode === 'image' && image && image.palette.length > 0) return imagePaletteToPalette(image.palette)
-    return generatePalette(seed, PALETTE_COUNT)
-  }, [mode, image, seed])
+    return generatePalette(seed, colorCount, paletteStyle)
+  }, [mode, image, seed, colorCount, paletteStyle])
 
   const composition = useMemo(
     () => buildComposition(grid, palette, { seed, textChance: textOn ? 0.3 : 0 }),
@@ -234,6 +240,10 @@ export function Studio() {
         columns={columns}
         rows={rows}
         depth={depth}
+        paletteStyle={paletteStyle}
+        resolvedStyle={resolveStyle(seed, paletteStyle)}
+        colorCount={colorCount}
+        palette={palette}
         grid={grid}
         revealOn={revealOn}
         textOn={textOn}
@@ -249,6 +259,8 @@ export function Studio() {
         onColumns={(v) => commit({ columns: v }, 'columns')}
         onRows={(v) => commit({ rows: v }, 'rows')}
         onDepth={(v) => commit({ depth: v }, 'depth')}
+        onPaletteStyle={(st) => commit({ paletteStyle: st }, 'paletteStyle')}
+        onColorCount={(n) => commit({ colorCount: n }, 'colorCount')}
         onGenerate={onGenerate}
         onIterate={onIterate}
         onUndo={undo}
