@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import type { GeneratorKind } from '../grid/types'
-import { generate } from '../grid/generators'
+import { generateRecursive, defaultRecursiveParams } from '../grid/generators/recursive'
+import { generateModular } from '../grid/generators/modular'
+import { generateNature, defaultNatureParams } from '../grid/generators/nature'
 import { buildAnchoredGrid, type Cut } from '../grid/anchor'
 import { encodeDescriptor, decodeDescriptor } from '../grid/serialize'
 import { generatePalette } from '../palette/generate'
@@ -34,6 +36,31 @@ function randomSeed(): number {
   return Math.floor(Math.random() * 1_000_000)
 }
 
+/** Swiss modular margin/gutter (fractions of the square) — matches the case-study figure. */
+const MODULAR_MARGIN = 0.06
+const MODULAR_GUTTER = 0.022
+
+/** The full generative state — one object so history (undo/redo) is a stack of snapshots. The
+ * sliders below drive the per-family structural params; the seed re-rolls variations within them. */
+export interface Doc {
+  generator: GeneratorKind
+  seed: number
+  targetModules: number // recursive
+  columns: number // modular
+  rows: number // modular
+  depth: number // nature
+}
+
+function defaultDoc(generator: GeneratorKind, seed: number): Doc {
+  return { generator, seed, targetModules: 9, columns: 6, rows: 4, depth: 6 }
+}
+
+interface History {
+  doc: Doc
+  past: Doc[]
+  future: Doc[]
+}
+
 export function Studio() {
   const [params, setParams] = useSearchParams()
   // read the descriptor from the URL exactly once on mount (shareable reproduction)
@@ -45,8 +72,42 @@ export function Studio() {
   // we keep `image` populated so its dataUrl/palette/cuts survive and seed the ImageBisection.
   const [reBisecting, setReBisecting] = useState(false)
 
-  const [generator, setGenerator] = useState<GeneratorKind>(initial.kind)
-  const [seed, setSeed] = useState<number>(initial.seed)
+  // generative state + undo/redo history (a single snapshot stack)
+  const [hist, setHist] = useState<History>(() => ({ doc: defaultDoc(initial.kind, initial.seed), past: [], future: [] }))
+  const doc = hist.doc
+  const { generator, seed, targetModules, columns, rows, depth } = doc
+  // coalesce rapid same-field edits (slider drags, repeated taps) into ONE undo step
+  const coalesceKey = useRef<string | null>(null)
+  const coalesceAt = useRef(0)
+
+  // `key` names the field being edited so a run of same-field edits (a slider drag, repeated taps)
+  // collapses to ONE undo step. The coalesce decision happens HERE (before setHist) so the setHist
+  // updater stays pure — React StrictMode double-invokes updaters, which would otherwise run the
+  // ref side-effects twice and silently drop the history push.
+  const commit = useCallback((p: Partial<Doc> | ((d: Doc) => Partial<Doc>), key?: keyof Doc) => {
+    const now = performance.now()
+    const sameField = key != null && coalesceKey.current === key && now - coalesceAt.current < 600
+    coalesceKey.current = key ?? null
+    coalesceAt.current = now
+    setHist((s) => {
+      const partial = typeof p === 'function' ? p(s.doc) : p
+      const next = { ...s.doc, ...partial }
+      const past = sameField ? s.past : [...s.past, s.doc].slice(-120)
+      return { doc: next, past, future: [] }
+    })
+  }, [])
+
+  const undo = useCallback(() => {
+    coalesceKey.current = null
+    setHist((s) => (s.past.length ? { doc: s.past[s.past.length - 1], past: s.past.slice(0, -1), future: [s.doc, ...s.future] } : s))
+  }, [])
+  const redo = useCallback(() => {
+    coalesceKey.current = null
+    setHist((s) => (s.future.length ? { doc: s.future[0], past: [...s.past, s.doc], future: s.future.slice(1) } : s))
+  }, [])
+  const canUndo = hist.past.length > 0
+  const canRedo = hist.future.length > 0
+
   const [revealOn, setRevealOn] = useState(false)
   const [textOn, setTextOn] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -67,8 +128,11 @@ export function Studio() {
   // mode it is the chosen generator. Either way Generate/Iterate re-seed the variations.
   const grid = useMemo(() => {
     if (mode === 'image' && image) return buildAnchoredGrid(image.cuts, seed)
-    return generate(generator, seed)
-  }, [mode, image, generator, seed])
+    if (generator === 'recursive') return generateRecursive(seed, { ...defaultRecursiveParams, targetModules })
+    if (generator === 'modular')
+      return generateModular(seed, { kind: 'modular', columns, rows, margin: MODULAR_MARGIN, gutter: MODULAR_GUTTER })
+    return generateNature(seed, { ...defaultNatureParams, depth })
+  }, [mode, image, generator, seed, targetModules, columns, rows, depth])
 
   const palette = useMemo(() => {
     if (mode === 'image' && image && image.palette.length > 0) return imagePaletteToPalette(image.palette)
@@ -80,8 +144,28 @@ export function Studio() {
     [grid, palette, seed, textOn],
   )
 
-  const onGenerate = useCallback(() => setSeed(randomSeed()), [])
-  const onIterate = useCallback(() => setSeed((s) => s + 1), [])
+  const onGenerate = useCallback(() => commit({ seed: randomSeed() }, 'seed'), [commit])
+  const onIterate = useCallback(() => commit((d) => ({ seed: d.seed + 1 }), 'seed'), [commit])
+
+  // Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z or Ctrl+Y redo. Skip while typing in a field (let the
+  // browser do native text undo there).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+      if (!(e.metaKey || e.ctrlKey)) return
+      const k = e.key.toLowerCase()
+      if (k === 'z') {
+        e.preventDefault()
+        e.shiftKey ? redo() : undo()
+      } else if (k === 'y') {
+        e.preventDefault()
+        redo()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [undo, redo])
 
   const onMode = useCallback((m: StudioMode) => {
     setMode(m)
@@ -91,11 +175,14 @@ export function Studio() {
     }
   }, [])
 
-  const onCommitImage = useCallback((cuts: Cut[], pal: ColorWeight[], dataUrl: string) => {
-    setImage({ cuts, palette: pal, dataUrl })
-    setReBisecting(false) // leaving the bisection step → show the anchored composition
-    setSeed(randomSeed()) // first seeded variation of the committed cuts
-  }, [])
+  const onCommitImage = useCallback(
+    (cuts: Cut[], pal: ColorWeight[], dataUrl: string) => {
+      setImage({ cuts, palette: pal, dataUrl })
+      setReBisecting(false) // leaving the bisection step → show the anchored composition
+      commit({ seed: randomSeed() }) // first seeded variation of the committed cuts
+    },
+    [commit],
+  )
 
   // return to the bisection step, keeping the committed image/cuts so they seed ImageBisection
   const onReBisect = useCallback(() => setReBisecting(true), [])
@@ -143,17 +230,29 @@ export function Studio() {
         mode={mode}
         generator={generator}
         seed={seed}
+        targetModules={targetModules}
+        columns={columns}
+        rows={rows}
+        depth={depth}
         grid={grid}
         revealOn={revealOn}
         textOn={textOn}
         busy={busy}
+        canUndo={canUndo}
+        canRedo={canRedo}
         imageCommitted={mode === 'image' && image !== null && !bisecting}
         bisecting={bisecting}
         onMode={onMode}
-        onGenerator={setGenerator}
-        onSeed={setSeed}
+        onGenerator={(k) => commit({ generator: k }, 'generator')}
+        onSeed={(s) => commit({ seed: s }, 'seed')}
+        onTargetModules={(v) => commit({ targetModules: v }, 'targetModules')}
+        onColumns={(v) => commit({ columns: v }, 'columns')}
+        onRows={(v) => commit({ rows: v }, 'rows')}
+        onDepth={(v) => commit({ depth: v }, 'depth')}
         onGenerate={onGenerate}
         onIterate={onIterate}
+        onUndo={undo}
+        onRedo={redo}
         onReBisect={onReBisect}
         onToggleReveal={() => setRevealOn((v) => !v)}
         onToggleText={() => setTextOn((v) => !v)}

@@ -12,9 +12,16 @@ interface Props {
   mode: StudioMode
   generator: GeneratorKind
   seed: number
+  /** per-family structural params (driven by the shape sliders) */
+  targetModules: number
+  columns: number
+  rows: number
+  depth: number
   grid: Grid
   revealOn: boolean
   textOn: boolean
+  canUndo: boolean
+  canRedo: boolean
   /** image mode, cuts committed → showing the anchored composition. */
   imageCommitted: boolean
   /** image mode, at the upload/cut step. */
@@ -22,8 +29,14 @@ interface Props {
   onMode: (m: StudioMode) => void
   onGenerator: (k: GeneratorKind) => void
   onSeed: (s: number) => void
+  onTargetModules: (v: number) => void
+  onColumns: (v: number) => void
+  onRows: (v: number) => void
+  onDepth: (v: number) => void
   onGenerate: () => void
   onIterate: () => void
+  onUndo: () => void
+  onRedo: () => void
   onReBisect: () => void
   onToggleReveal: () => void
   onToggleText: () => void
@@ -93,6 +106,23 @@ export function GeneratorControls(p: Props) {
         </Section>
       )}
 
+      {p.mode === 'scratch' && (
+        <Section label="shape">
+          {p.generator === 'recursive' && (
+            <Slider label="cells" value={p.targetModules} min={2} max={24} onChange={p.onTargetModules} />
+          )}
+          {p.generator === 'modular' && (
+            <>
+              <Slider label="columns" value={p.columns} min={2} max={12} onChange={p.onColumns} />
+              <Slider label="rows" value={p.rows} min={2} max={10} onChange={p.onRows} />
+            </>
+          )}
+          {p.generator === 'nature' && (
+            <Slider label="depth" value={p.depth} min={1} max={10} onChange={p.onDepth} />
+          )}
+        </Section>
+      )}
+
       {p.imageCommitted && (
         <Section label="bisection">
           <div
@@ -117,6 +147,10 @@ export function GeneratorControls(p: Props) {
             <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
               <ActionButton label="Generate" hint="new seed" onClick={p.onGenerate} primary />
               <ActionButton label="Iterate" hint="seed + 1" onClick={p.onIterate} />
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+              <ActionButton label="↶ Undo" hint="⌘Z" onClick={p.onUndo} disabled={!p.canUndo} grow />
+              <ActionButton label="↷ Redo" hint="⇧⌘Z" onClick={p.onRedo} disabled={!p.canRedo} grow />
             </div>
           </Section>
 
@@ -184,6 +218,53 @@ function Section({ label, children }: { label: string; children: React.ReactNode
       </div>
       {children}
     </section>
+  )
+}
+
+/** A labeled range slider in the dark-rail vocabulary (mono caps, steel accent + value). Live —
+ * drags update the composition continuously; the Studio coalesces a whole drag into one undo step. */
+function Slider({
+  label,
+  value,
+  min,
+  max,
+  step = 1,
+  onChange,
+}: {
+  label: string
+  value: number
+  min: number
+  max: number
+  step?: number
+  onChange: (v: number) => void
+}) {
+  return (
+    <label
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        padding: '5px 0',
+        fontFamily: 'var(--font-mono)',
+        fontSize: 11.5,
+        color: CREAM,
+        userSelect: 'none',
+      }}
+    >
+      <span style={{ letterSpacing: '0.1em', textTransform: 'uppercase', opacity: 0.55, minWidth: '5.5em' }}>
+        {label}
+      </span>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        style={{ flex: 1, accentColor: STEEL, cursor: 'pointer' }}
+      />
+      <span style={{ minWidth: '2.2em', textAlign: 'right', color: STEEL, letterSpacing: '0.04em' }}>{value}</span>
+    </label>
   )
 }
 
