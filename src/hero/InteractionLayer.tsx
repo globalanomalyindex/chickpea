@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { clientToStage, type Stage } from './stageScale'
 import { buildMeasurements, selectMeasurements, cursorRelevance, type Box } from './measurements'
-import { relax, restOverlapPairs, layoutLabels, crossesAny, type Rect, type SolverBox } from './collision'
+import { relax, layoutLabels, crossesAny, type Rect, type SolverBox } from './collision'
 import { ARTBOARD, HERO_COLORS } from './heroLayout'
 import { measureBoxes, queryReactiveEls, type PlacementMap } from './heroDom'
 
@@ -413,17 +413,14 @@ export function InteractionLayer({
         }
 
         // relax: dragged pinned at its (snapped) live position; others mobile from their home.
-        // Pairs already overlapping at HOME (dragged at rest + others placed) are preserved, so a
-        // coarse box that intersects a neighbor by design never gets spuriously shoved.
-        const skip = restOverlapPairs([
-          { id: d.id, x: d.origin.x, y: d.origin.y, w, h },
-          ...others.map((o) => ({ id: o.id, x: o.x, y: o.y, w: o.w, h: o.h })),
-        ])
+        // `useHome` resolves only overlap BEYOND each pair's rest overlap, so by-design grazing
+        // (adjacent text lines) is preserved while the dragged intrusion is pushed fully out. The
+        // dragged box's home is its RESTING origin (where it's disjoint from everyone).
         const solver: SolverBox[] = [
-          { id: d.id, x: d.origin.x + dx, y: d.origin.y + dy, w, h, pinned: true },
-          ...others.map((o) => ({ id: o.id, x: o.x, y: o.y, w: o.w, h: o.h, pinned: false })),
+          { id: d.id, x: d.origin.x + dx, y: d.origin.y + dy, w, h, pinned: true, hx: d.origin.x, hy: d.origin.y },
+          ...others.map((o) => ({ id: o.id, x: o.x, y: o.y, w: o.w, h: o.h, pinned: false, hx: o.x, hy: o.y })),
         ]
-        const resolved = relax(solver, { pad: PAD, skip })
+        const resolved = relax(solver, { pad: PAD, useHome: true })
         const resolvedOthers = new Map<string, { dx: number; dy: number }>()
         const movedById = new Map<string, Box>()
         for (const o of others) {
@@ -499,14 +496,13 @@ export function InteractionLayer({
         }
 
         // relax word units (title block pinned so words flow around it, never shove it on hover).
-        // Skip pairs that overlap at HOME (placed) — e.g. the tall title's box vs the line below it,
-        // which intersect by design and must NOT be pushed apart.
-        const skip = restOverlapPairs(units.map((u) => ({ id: u.id, x: u.x, y: u.y, w: u.w, h: u.h })))
+        // `useHome` (home = placed, pre-separation) resolves only the overlap the separation INDUCES,
+        // preserving by-design rest grazing (the tall title vs the line below; adjacent text lines).
         const solver: SolverBox[] = units.map((u) => {
           const sp = sep.get(u.id) ?? { dx: 0, dy: 0 }
-          return { id: u.id, x: u.x + sp.dx, y: u.y + sp.dy, w: u.w, h: u.h, pinned: u.id === 'title' }
+          return { id: u.id, x: u.x + sp.dx, y: u.y + sp.dy, w: u.w, h: u.h, pinned: u.id === 'title', hx: u.x, hy: u.y }
         })
-        const resolved = relax(solver, { pad: PAD, skip })
+        const resolved = relax(solver, { pad: PAD, useHome: true })
         for (const u of units) {
           if (u.id === 'title') continue
           const r = resolved.get(u.id)!
@@ -561,13 +557,24 @@ export function InteractionLayer({
       // ===== zero-overlap number layout: push every label clear of words/letters/heads/each other =====
       if (pending.length) {
         const obstacles: Rect[] = []
-        // every reactive INK box (placed + its target nudge) is an obstacle for numbers. Use the
+        // every reactive INK box at its LIVE on-screen position is an obstacle for numbers. Use the
         // letters + words (the real ink), NOT the title BLOCK box — that 200px-tall coarse box is a
-        // trap a number can't escape, and its letters already cover the actual glyphs.
+        // trap a number can't escape, and its letters already cover the actual glyphs. The dragged
+        // element (and, if the title is grabbed, its letters) sit at the cursor, NOT their placed
+        // spot — feed THAT position so numbers avoid where the ink actually is mid-drag.
         for (const b of placed) {
           if (b.kind !== 'letter' && b.kind !== 'word') continue
-          const n = targetNudge.get(b.id) ?? { dx: 0, dy: 0 }
-          obstacles.push({ x: b.x + n.dx, y: b.y + n.dy, w: b.w, h: b.h })
+          let nx = 0
+          let ny = 0
+          if (d && (b.id === d.id || (d.id === 'title' && b.kind === 'letter'))) {
+            nx = d.dx
+            ny = d.dy
+          } else {
+            const n = targetNudge.get(b.id) ?? { dx: 0, dy: 0 }
+            nx = n.dx
+            ny = n.dy
+          }
+          obstacles.push({ x: b.x + nx, y: b.y + ny, w: b.w, h: b.h })
         }
         // arrowheads are obstacles too (a number must never sit on a head)
         for (const q of pending) for (const hr of arrowHeadRects(q.arrow)) obstacles.push(hr)

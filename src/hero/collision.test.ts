@@ -4,7 +4,6 @@ import {
   crossesAny,
   preventOverlap,
   relax,
-  restOverlapPairs,
   layoutLabels,
   type Rect,
   type SolverBox,
@@ -213,34 +212,43 @@ describe('relax', () => {
     expect(boxes).toEqual(mk()) // unchanged
   })
 
-  it('PRESERVES a rest-overlapping pair when told to skip it (does not spuriously shove)', () => {
-    // a tall "title" box overlaps the "line below" by design; skip keeps them put, while a third
-    // box pushed into the line still gets resolved.
+  it('useHome leaves a pair that overlaps only by its rest amount untouched', () => {
+    // title and line graze at rest by 10px on y; home = current, so the overlap is allowed
     const title: SolverBox = { id: 'title', x: 0, y: 0, w: 100, h: 100 }
-    const line: SolverBox = { id: 'line', x: 0, y: 90, w: 100, h: 30 } // overlaps title by 10 on y
-    const skip = restOverlapPairs([title, line])
-    expect(skip.has('line|title')).toBe(true)
-    const res = relax([title, line], { skip })
-    expect(res.get('title')).toEqual({ x: 0, y: 0 }) // untouched
-    expect(res.get('line')).toEqual({ x: 0, y: 90 }) // untouched (rest overlap preserved)
+    const line: SolverBox = { id: 'line', x: 0, y: 90, w: 100, h: 30 }
+    const res = relax([title, line], { useHome: true })
+    expect(res.get('title')).toEqual({ x: 0, y: 0 })
+    expect(res.get('line')).toEqual({ x: 0, y: 90 })
   })
 
-  it('still resolves a NEW overlap even when a rest pair is skipped', () => {
-    const title: SolverBox = { id: 'title', x: 0, y: 0, w: 100, h: 100, pinned: true }
-    const line: SolverBox = { id: 'line', x: 0, y: 90, w: 100, h: 30 } // rest-overlaps title
-    const intruder: SolverBox = { id: 'intruder', x: 80, y: 95, w: 40, h: 20 } // newly hits line
-    const skip = restOverlapPairs([
-      { id: 'title', x: 0, y: 0, w: 100, h: 100 },
-      { id: 'line', x: 0, y: 90, w: 100, h: 30 },
-      { id: 'intruder', x: 200, y: 95, w: 40, h: 20 }, // home: far away -> not a rest pair
-    ])
-    const res = relax([title, line, intruder], { skip })
-    // title<->line preserved; line<->intruder resolved
-    const lineR = res.get('line')!
-    const intR = res.get('intruder')!
-    const lr: Rect = { x: lineR.x, y: lineR.y, w: 100, h: 30 }
-    const ir: Rect = { x: intR.x, y: intR.y, w: 40, h: 20 }
-    expect(rectsOverlap(lr, ir)).toBe(false)
+  it('useHome preserves rest grazing but resolves overlap BEYOND it (the dragged-into-a-line case)', () => {
+    // line0 (pinned, the obstacle) and line1 graze by 6px at rest; line1 is dragged UP into line0
+    // (30px overlap). It must be pushed back down to ~the rest 6px overlap, not fully separated.
+    const a: SolverBox = { id: 'a', x: 0, y: 0, w: 100, h: 50, pinned: true, hx: 0, hy: 0 }
+    const b: SolverBox = { id: 'b', x: 0, y: 20, w: 100, h: 50, hx: 0, hy: 44 } // home grazes by 6
+    const res = relax([a, b], { useHome: true })
+    const by = res.get('b')!.y
+    expect(by).toBeGreaterThan(40) // pushed back DOWN toward its rest position (44), not to 50+
+    expect(by).toBeLessThan(46)
+  })
+
+  it('useHome + pad does NOT drift a rest-overlapping pair (the pad-asymmetry regression)', () => {
+    // two boxes overlapping at rest (home = current); with breathing-room pad they must NOT move —
+    // the old code added pad to current penetration but not rest, leaving a constant pad of excess
+    // that the loop turned into unbounded drift.
+    const a: SolverBox = { id: 'a', x: 0, y: 0, w: 100, h: 100, hx: 0, hy: 0 }
+    const b: SolverBox = { id: 'b', x: 30, y: 30, w: 100, h: 100, hx: 30, hy: 30 }
+    const res = relax([a, b], { useHome: true, pad: 6 })
+    expect(res.get('a')).toEqual({ x: 0, y: 0 })
+    expect(res.get('b')).toEqual({ x: 30, y: 30 })
+  })
+
+  it('without useHome, ALL overlap resolves (label-style full clearance)', () => {
+    const a: SolverBox = { id: 'a', x: 0, y: 0, w: 100, h: 50, pinned: true }
+    const b: SolverBox = { id: 'b', x: 0, y: 20, w: 100, h: 50 } // overlaps a by 30 on y
+    const res = relax([a, b]) // no useHome -> full resolution
+    const by = res.get('b')!.y
+    expect(by).toBeGreaterThanOrEqual(50) // fully cleared below a
   })
 })
 

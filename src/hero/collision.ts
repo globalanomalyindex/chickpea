@@ -98,6 +98,11 @@ export function resolveLabelCollisions(labels: Rect[]): number[] {
 export interface SolverBox extends Rect {
   id: string
   pinned?: boolean
+  /** Home (rest) position. With relax's `useHome`, only overlap BEYOND the home overlap resolves,
+   * so by-design grazing (adjacent text lines, a tall title vs the line below) is preserved while a
+   * dragged intrusion is still pushed fully out. Defaults to the box's current x/y. */
+  hx?: number
+  hy?: number
 }
 
 /**
@@ -117,12 +122,15 @@ export interface SolverBox extends Rect {
  */
 export function relax(
   boxes: SolverBox[],
-  opts: { passes?: number; pad?: number; skip?: Set<string> } = {},
+  opts: { passes?: number; pad?: number; useHome?: boolean } = {},
 ): Map<string, { x: number; y: number }> {
   const n = boxes.length
   const pad = opts.pad ?? 0
-  const skip = opts.skip
-  const key = (a: string, b: string) => (a < b ? a + '|' + b : b + '|' + a)
+  // With `useHome`, only overlap BEYOND each pair's rest (home) overlap is resolved — so boxes that
+  // graze by design at rest (adjacent text lines, a tall title vs the line below) keep exactly that
+  // much overlap and no more, while a dragged intrusion is still pushed fully out. Without it, ALL
+  // overlap resolves (used for label de-collision, where numbers must clear obstacles completely).
+  const useHome = !!opts.useHome
   // A box squeezed between a pinned box and a flush chain converges only as fast as the chain
   // relaxes (O(n²) sweeps in the worst case). The hero only ever has ~10 boxes, so a generous
   // quadratic budget is microseconds and guarantees the chain fully clears.
@@ -132,6 +140,8 @@ export function relax(
   const EPS = 0.05
   const px = boxes.map((b) => b.x)
   const py = boxes.map((b) => b.y)
+  const hx = boxes.map((b) => b.hx ?? b.x)
+  const hy = boxes.map((b) => b.hy ?? b.y)
   const pinned = boxes.map((b) => !!b.pinned)
 
   for (let pass = 0; pass < passes; pass++) {
@@ -139,27 +149,40 @@ export function relax(
     for (let i = 0; i < n; i++) {
       for (let j = i + 1; j < n; j++) {
         if (pinned[i] && pinned[j]) continue
-        // pairs that already overlap at REST (coarse bounding boxes that intersect by design, e.g.
-        // a tall title's box vs the line below it) are preserved — only NEW overlap is resolved.
-        if (skip && skip.has(key(boxes[i].id, boxes[j].id))) continue
         const aw = boxes[i].w
         const ah = boxes[i].h
         const bw = boxes[j].w
         const bh = boxes[j].h
-        const penX = Math.min(px[i] + aw, px[j] + bw) - Math.max(px[i], px[j]) + pad
-        const penY = Math.min(py[i] + ah, py[j] + bh) - Math.max(py[i], py[j]) + pad
+        const penX = Math.min(px[i] + aw, px[j] + bw) - Math.max(px[i], px[j])
+        const penY = Math.min(py[i] + ah, py[j] + bh) - Math.max(py[i], py[j])
         if (penX <= 0 || penY <= 0) continue
+        // rest (allowed) overlap per axis. CRITICAL: current and rest are measured identically (no
+        // pad on either) — adding pad to current only would leave a constant `pad` of excess on
+        // every rest-overlapping pair, which the loop would turn into unbounded drift.
+        let restX = 0
+        let restY = 0
+        if (useHome) {
+          restX = Math.max(0, Math.min(hx[i] + aw, hx[j] + bw) - Math.max(hx[i], hx[j]))
+          restY = Math.max(0, Math.min(hy[i] + ah, hy[j] + bh) - Math.max(hy[i], hy[j]))
+        }
+        // remove overlap beyond rest; add the breathing-room pad ONLY where the pair is disjoint at
+        // rest (a by-design rest overlap is restored to exactly itself, never pushed pad further).
+        const exX = penX - restX + (restX <= 0 ? pad : 0)
+        const exY = penY - restY + (restY <= 0 ? pad : 0)
+        if (exX <= 0 && exY <= 0) continue // overlap within the rest tolerance — leave it
         const mi = pinned[i] ? 0 : 1
         const mj = pinned[j] ? 0 : 1
         const sum = mi + mj
         if (sum === 0) continue
-        if (penX < penY) {
-          const move = penX + EPS
+        // resolve along the axis with the SMALLEST positive excess (cheapest move toward rest)
+        const useXaxis = exX > 0 && exY > 0 ? exX <= exY : exX > 0
+        if (useXaxis) {
+          const move = exX + EPS
           const dir = px[i] + aw / 2 <= px[j] + bw / 2 ? -1 : 1
           px[i] += dir * move * (mi / sum)
           px[j] -= dir * move * (mj / sum)
         } else {
-          const move = penY + EPS
+          const move = exY + EPS
           const dir = py[i] + ah / 2 <= py[j] + bh / 2 ? -1 : 1
           py[i] += dir * move * (mi / sum)
           py[j] -= dir * move * (mj / sum)
@@ -172,23 +195,6 @@ export function relax(
 
   const out = new Map<string, { x: number; y: number }>()
   boxes.forEach((b, i) => out.set(b.id, { x: px[i], y: py[i] }))
-  return out
-}
-
-/** Pairs (by id) that already overlap at their given positions — pass to `relax`'s `skip` so a
- * coarse box that intersects a neighbor by design (a tall title vs the line below it) is preserved
- * and only NEW, induced overlaps get resolved. Keys match relax's internal `a b` (sorted) form. */
-export function restOverlapPairs(boxes: SolverBox[]): Set<string> {
-  const out = new Set<string>()
-  for (let i = 0; i < boxes.length; i++) {
-    for (let j = i + 1; j < boxes.length; j++) {
-      if (overlaps(boxes[i], boxes[j])) {
-        const a = boxes[i].id
-        const b = boxes[j].id
-        out.add(a < b ? a + '|' + b : b + '|' + a)
-      }
-    }
-  }
   return out
 }
 
