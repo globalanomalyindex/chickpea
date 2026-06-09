@@ -10,7 +10,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.join(__dirname, '..')
 const OUT_DIR = path.join(ROOT, 'public', 'cursors')
 
-const TARGET_H = 44 // cropped cursor height in px — noticeably larger than a standard ~24px cursor
+const TARGET_H = 28 // cropped cursor height in px — a normal system-cursor size (not enlarged)
+const ALPHA_CUT = 128 // harden the silhouette to this alpha threshold -> crisp pixel edges, no blur
 
 // ---------- PNG decode ----------
 function readChunks(buf) {
@@ -203,6 +204,13 @@ function resizeTo(img, dh) {
   return { w: dw, h: dh, rgba: out }
 }
 
+// ---------- harden the silhouette: snap edge alpha to 0/255 so it reads crisp, not blurred ----------
+function sharpenAlpha(img, cut) {
+  const { rgba } = img
+  for (let i = 3; i < rgba.length; i += 4) rgba[i] = rgba[i] >= cut ? 255 : 0
+  return img
+}
+
 // ---------- hotspot: topmost opaque row; x = (arrow) leftmost opaque, (hand) center of run ----------
 function hotspot(img, mode) {
   const { w, h, rgba } = img
@@ -223,7 +231,7 @@ function process(srcFile, outName, mode) {
   const img = decodePng(fs.readFileSync(path.join(ROOT, 'sprites', srcFile)))
   const keyed = keyMagenta(img)
   const cropped = autocrop(keyed)
-  const sized = resizeTo(cropped, TARGET_H)
+  const sized = sharpenAlpha(resizeTo(cropped, TARGET_H), ALPHA_CUT)
   const hot = hotspot(sized, mode)
   fs.writeFileSync(path.join(OUT_DIR, outName), encodePng(sized.w, sized.h, sized.rgba))
   console.log(`${outName}  ${sized.w}x${sized.h}  hotspot ${hot.x} ${hot.y}`)
