@@ -94,6 +94,128 @@ export function resolveLabelCollisions(labels: Rect[]): number[] {
   return dys
 }
 
+/** A box in the relaxation solver. `pinned` boxes never move (e.g. the element under the cursor). */
+export interface SolverBox extends Rect {
+  id: string
+  pinned?: boolean
+}
+
+/**
+ * Global cascading overlap solver — the heart of "everything moves out of the way, down the chain,
+ * and NOTHING ends up overlapping." Given a set of boxes (some `pinned`), it sweeps every pair and
+ * separates any overlap along its axis of least penetration, applying each fix immediately
+ * (Gauss-Seidel) and repeating until a whole sweep changes nothing. Immediate application is what
+ * makes pushes PROPAGATE: when A displaces B this sweep, B↔C is resolved next sweep — so a dragged
+ * box shoves a neighbor, which shoves its neighbor, until the chain is clear.
+ *
+ * Pinned boxes act as infinite mass (only the other box in a pair moves); two mobile boxes split
+ * the separation by half each, so a cluster stays centered. PURE and DETERMINISTIC: it depends only
+ * on the input positions, so seeding it from rest each frame and moving only the pinned (cursor) box
+ * yields continuously-moving outputs — no rubberband. `pad` keeps a hair of breathing room.
+ *
+ * Returns a resolved {x,y} per id (pinned ids return their input position unchanged).
+ */
+export function relax(
+  boxes: SolverBox[],
+  opts: { passes?: number; pad?: number; skip?: Set<string> } = {},
+): Map<string, { x: number; y: number }> {
+  const n = boxes.length
+  const pad = opts.pad ?? 0
+  const skip = opts.skip
+  const key = (a: string, b: string) => (a < b ? a + '|' + b : b + '|' + a)
+  // A box squeezed between a pinned box and a flush chain converges only as fast as the chain
+  // relaxes (O(n²) sweeps in the worst case). The hero only ever has ~10 boxes, so a generous
+  // quadratic budget is microseconds and guarantees the chain fully clears.
+  const passes = opts.passes ?? Math.max(80, n * n * 10)
+  // Overshoot each separation by a hair so pairs land STRICTLY disjoint instead of asymptotically
+  // flush (which leaves a sub-pixel residual overlap). Invisible, and it lets the sweep early-exit.
+  const EPS = 0.05
+  const px = boxes.map((b) => b.x)
+  const py = boxes.map((b) => b.y)
+  const pinned = boxes.map((b) => !!b.pinned)
+
+  for (let pass = 0; pass < passes; pass++) {
+    let moved = false
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        if (pinned[i] && pinned[j]) continue
+        // pairs that already overlap at REST (coarse bounding boxes that intersect by design, e.g.
+        // a tall title's box vs the line below it) are preserved — only NEW overlap is resolved.
+        if (skip && skip.has(key(boxes[i].id, boxes[j].id))) continue
+        const aw = boxes[i].w
+        const ah = boxes[i].h
+        const bw = boxes[j].w
+        const bh = boxes[j].h
+        const penX = Math.min(px[i] + aw, px[j] + bw) - Math.max(px[i], px[j]) + pad
+        const penY = Math.min(py[i] + ah, py[j] + bh) - Math.max(py[i], py[j]) + pad
+        if (penX <= 0 || penY <= 0) continue
+        const mi = pinned[i] ? 0 : 1
+        const mj = pinned[j] ? 0 : 1
+        const sum = mi + mj
+        if (sum === 0) continue
+        if (penX < penY) {
+          const move = penX + EPS
+          const dir = px[i] + aw / 2 <= px[j] + bw / 2 ? -1 : 1
+          px[i] += dir * move * (mi / sum)
+          px[j] -= dir * move * (mj / sum)
+        } else {
+          const move = penY + EPS
+          const dir = py[i] + ah / 2 <= py[j] + bh / 2 ? -1 : 1
+          py[i] += dir * move * (mi / sum)
+          py[j] -= dir * move * (mj / sum)
+        }
+        moved = true
+      }
+    }
+    if (!moved) break
+  }
+
+  const out = new Map<string, { x: number; y: number }>()
+  boxes.forEach((b, i) => out.set(b.id, { x: px[i], y: py[i] }))
+  return out
+}
+
+/** Pairs (by id) that already overlap at their given positions — pass to `relax`'s `skip` so a
+ * coarse box that intersects a neighbor by design (a tall title vs the line below it) is preserved
+ * and only NEW, induced overlaps get resolved. Keys match relax's internal `a b` (sorted) form. */
+export function restOverlapPairs(boxes: SolverBox[]): Set<string> {
+  const out = new Set<string>()
+  for (let i = 0; i < boxes.length; i++) {
+    for (let j = i + 1; j < boxes.length; j++) {
+      if (overlaps(boxes[i], boxes[j])) {
+        const a = boxes[i].id
+        const b = boxes[j].id
+        out.add(a < b ? a + '|' + b : b + '|' + a)
+      }
+    }
+  }
+  return out
+}
+
+/**
+ * Place labels (numbers) so none overlaps any obstacle (word boxes / arrowheads) OR another label —
+ * the "numbers never clash with anything" guarantee. Obstacles are pinned; labels are mobile and
+ * relax out of every collision by minimal displacement (a label that already sits clear doesn't
+ * move). Returns a {dx,dy} per label id in input order.
+ */
+export function layoutLabels(
+  labels: SolverBox[],
+  obstacles: Rect[],
+  pad = 0,
+): Map<string, { dx: number; dy: number }> {
+  const boxes: SolverBox[] = [
+    ...obstacles.map((o, k) => ({ id: `__obs_${k}`, x: o.x, y: o.y, w: o.w, h: o.h, pinned: true })),
+    ...labels.map((l) => ({ id: l.id, x: l.x, y: l.y, w: l.w, h: l.h, pinned: false })),
+  ]
+  const res = relax(boxes, { pad, passes: Math.max(40, boxes.length * 8) })
+  const out = new Map<string, { dx: number; dy: number }>()
+  for (const l of labels) {
+    const r = res.get(l.id)!
+    out.set(l.id, { dx: r.x - l.x, dy: r.y - l.y })
+  }
+  return out
+}
+
 /** Does rect `a` overlap any rect in `words`? Axis-aligned, positive-area (edge touch = false). */
 export function crossesAny(a: Rect, words: Rect[]): boolean {
   for (const w of words) {

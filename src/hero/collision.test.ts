@@ -1,5 +1,14 @@
 import { describe, it, expect } from 'vitest'
-import { resolveLabelCollisions, crossesAny, preventOverlap, type Rect } from './collision'
+import {
+  resolveLabelCollisions,
+  crossesAny,
+  preventOverlap,
+  relax,
+  restOverlapPairs,
+  layoutLabels,
+  type Rect,
+  type SolverBox,
+} from './collision'
 
 /** Do two axis-aligned rects overlap (strictly, positive-area intersection)? */
 function rectsOverlap(a: Rect, b: Rect): boolean {
@@ -104,6 +113,165 @@ describe('resolveLabelCollisions', () => {
     const a = resolveLabelCollisions(labels)
     const b = resolveLabelCollisions(labels)
     expect(a).toEqual(b)
+  })
+})
+
+/** Reconstruct moved rects from a relax() result, in input order. */
+function moveBoxes(boxes: SolverBox[], res: Map<string, { x: number; y: number }>): Rect[] {
+  return boxes.map((b) => {
+    const p = res.get(b.id)!
+    return { x: p.x, y: p.y, w: b.w, h: b.h }
+  })
+}
+
+/** Are ALL pairs in a set mutually non-overlapping? */
+function allDisjoint(rects: Rect[]): boolean {
+  for (let i = 0; i < rects.length; i++)
+    for (let j = i + 1; j < rects.length; j++) if (rectsOverlap(rects[i], rects[j])) return false
+  return true
+}
+
+describe('relax', () => {
+  it('leaves an already-disjoint set untouched', () => {
+    const boxes: SolverBox[] = [
+      { id: 'a', x: 0, y: 0, w: 40, h: 40 },
+      { id: 'b', x: 200, y: 0, w: 40, h: 40 },
+    ]
+    const res = relax(boxes)
+    expect(res.get('a')).toEqual({ x: 0, y: 0 })
+    expect(res.get('b')).toEqual({ x: 200, y: 0 })
+  })
+
+  it('never moves a pinned box, and pushes the other out of it', () => {
+    const boxes: SolverBox[] = [
+      { id: 'pin', x: 50, y: 50, w: 40, h: 40, pinned: true },
+      { id: 'mob', x: 70, y: 50, w: 40, h: 40 },
+    ]
+    const res = relax(boxes)
+    expect(res.get('pin')).toEqual({ x: 50, y: 50 }) // pinned unchanged
+    expect(allDisjoint(moveBoxes(boxes, res))).toBe(true)
+  })
+
+  it('PROPAGATES a push down a chain: a pinned box clears a whole row of neighbors', () => {
+    // a pinned box overlapping a tight row A-B-C-D; the push must cascade so NONE overlap
+    const boxes: SolverBox[] = [
+      { id: 'drag', x: 45, y: 0, w: 40, h: 40, pinned: true },
+      { id: 'A', x: 50, y: 0, w: 40, h: 40 },
+      { id: 'B', x: 90, y: 0, w: 40, h: 40 },
+      { id: 'C', x: 130, y: 0, w: 40, h: 40 },
+      { id: 'D', x: 170, y: 0, w: 40, h: 40 },
+    ]
+    const res = relax(boxes)
+    expect(res.get('drag')).toEqual({ x: 45, y: 0 })
+    expect(allDisjoint(moveBoxes(boxes, res))).toBe(true)
+  })
+
+  it('two mobile boxes split the separation symmetrically (cluster stays centered)', () => {
+    const boxes: SolverBox[] = [
+      { id: 'a', x: 0, y: 0, w: 40, h: 40 },
+      { id: 'b', x: 20, y: 0, w: 40, h: 40 }, // 20px overlap on x
+    ]
+    const res = relax(boxes)
+    const a = res.get('a')!
+    const b = res.get('b')!
+    expect(a.x).toBeLessThan(0) // a pushed left
+    expect(b.x).toBeGreaterThan(20) // b pushed right
+    expect(Math.abs(0 - a.x)).toBeCloseTo(Math.abs(b.x - 20), 5) // symmetric
+  })
+
+  it('resolves a 2D cluster so every pair is disjoint', () => {
+    const boxes: SolverBox[] = [
+      { id: 'a', x: 0, y: 0, w: 50, h: 50 },
+      { id: 'b', x: 20, y: 20, w: 50, h: 50 },
+      { id: 'c', x: 40, y: 10, w: 50, h: 50 },
+      { id: 'd', x: 10, y: 40, w: 50, h: 50 },
+    ]
+    const res = relax(boxes)
+    expect(allDisjoint(moveBoxes(boxes, res))).toBe(true)
+  })
+
+  it('respects padding (boxes rest apart, not kissing)', () => {
+    const boxes: SolverBox[] = [
+      { id: 'pin', x: 50, y: 50, w: 40, h: 40, pinned: true },
+      { id: 'mob', x: 85, y: 50, w: 40, h: 40 },
+    ]
+    const res = relax(boxes, { pad: 6 })
+    const m = res.get('mob')!
+    // mob pushed right; its left edge must clear pin's right edge by ~pad
+    expect(m.x - (50 + 40)).toBeGreaterThanOrEqual(5.5)
+  })
+
+  it('is deterministic and does not mutate inputs', () => {
+    const mk = (): SolverBox[] => [
+      { id: 'a', x: 0, y: 0, w: 40, h: 40 },
+      { id: 'b', x: 20, y: 0, w: 40, h: 40 },
+    ]
+    const boxes = mk()
+    const r1 = relax(boxes)
+    const r2 = relax(mk())
+    expect([...r1.entries()]).toEqual([...r2.entries()])
+    expect(boxes).toEqual(mk()) // unchanged
+  })
+
+  it('PRESERVES a rest-overlapping pair when told to skip it (does not spuriously shove)', () => {
+    // a tall "title" box overlaps the "line below" by design; skip keeps them put, while a third
+    // box pushed into the line still gets resolved.
+    const title: SolverBox = { id: 'title', x: 0, y: 0, w: 100, h: 100 }
+    const line: SolverBox = { id: 'line', x: 0, y: 90, w: 100, h: 30 } // overlaps title by 10 on y
+    const skip = restOverlapPairs([title, line])
+    expect(skip.has('line|title')).toBe(true)
+    const res = relax([title, line], { skip })
+    expect(res.get('title')).toEqual({ x: 0, y: 0 }) // untouched
+    expect(res.get('line')).toEqual({ x: 0, y: 90 }) // untouched (rest overlap preserved)
+  })
+
+  it('still resolves a NEW overlap even when a rest pair is skipped', () => {
+    const title: SolverBox = { id: 'title', x: 0, y: 0, w: 100, h: 100, pinned: true }
+    const line: SolverBox = { id: 'line', x: 0, y: 90, w: 100, h: 30 } // rest-overlaps title
+    const intruder: SolverBox = { id: 'intruder', x: 80, y: 95, w: 40, h: 20 } // newly hits line
+    const skip = restOverlapPairs([
+      { id: 'title', x: 0, y: 0, w: 100, h: 100 },
+      { id: 'line', x: 0, y: 90, w: 100, h: 30 },
+      { id: 'intruder', x: 200, y: 95, w: 40, h: 20 }, // home: far away -> not a rest pair
+    ])
+    const res = relax([title, line, intruder], { skip })
+    // title<->line preserved; line<->intruder resolved
+    const lineR = res.get('line')!
+    const intR = res.get('intruder')!
+    const lr: Rect = { x: lineR.x, y: lineR.y, w: 100, h: 30 }
+    const ir: Rect = { x: intR.x, y: intR.y, w: 40, h: 20 }
+    expect(rectsOverlap(lr, ir)).toBe(false)
+  })
+})
+
+describe('layoutLabels', () => {
+  it('leaves a label that overlaps nothing where it is', () => {
+    const labels: SolverBox[] = [{ id: 'L1', x: 0, y: 0, w: 30, h: 12 }]
+    const obstacles: Rect[] = [{ x: 200, y: 200, w: 40, h: 40 }]
+    expect(layoutLabels(labels, obstacles).get('L1')).toEqual({ dx: 0, dy: 0 })
+  })
+
+  it('pushes a label off an obstacle (word) it overlaps', () => {
+    const labels: SolverBox[] = [{ id: 'L1', x: 100, y: 100, w: 30, h: 12 }]
+    const obstacles: Rect[] = [{ x: 90, y: 95, w: 60, h: 30 }]
+    const d = layoutLabels(labels, obstacles).get('L1')!
+    const moved: Rect = { x: 100 + d.dx, y: 100 + d.dy, w: 30, h: 12 }
+    expect(rectsOverlap(moved, obstacles[0])).toBe(false)
+  })
+
+  it('separates two clashing labels AND keeps them off obstacles', () => {
+    const labels: SolverBox[] = [
+      { id: 'L1', x: 100, y: 100, w: 30, h: 12 },
+      { id: 'L2', x: 108, y: 104, w: 30, h: 12 },
+    ]
+    const obstacles: Rect[] = [{ x: 60, y: 100, w: 30, h: 12 }]
+    const ds = layoutLabels(labels, obstacles)
+    const moved = labels.map((l) => {
+      const d = ds.get(l.id)!
+      return { x: l.x + d.dx, y: l.y + d.dy, w: l.w, h: l.h }
+    })
+    expect(rectsOverlap(moved[0], moved[1])).toBe(false)
+    for (const m of moved) expect(rectsOverlap(m, obstacles[0])).toBe(false)
   })
 })
 
