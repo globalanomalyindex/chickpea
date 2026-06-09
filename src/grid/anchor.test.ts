@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { snapToRatio, buildAnchoredGrid, RATIO_POSITIONS, type Cut } from './anchor'
+import { snapToRatio, buildAnchoredGrid, snapCut, RATIO_POSITIONS, type Cut } from './anchor'
 import { checkBounds, checkTiling } from './invariants'
 
 describe('snapToRatio', () => {
@@ -93,5 +93,23 @@ describe('nested snapping (anchors compose)', () => {
     const g = buildAnchoredGrid([{ axis: 'v', pos: 0.5 }], 9)
     const cuts = g.meta?.cuts as { frac: number }[] | undefined
     expect(cuts && cuts.length).toBeTruthy()
+  })
+})
+
+describe('snapCut (the UI-facing snapper)', () => {
+  it('snaps globally and names the position truthfully', () => {
+    const s = snapCut(0.51, [])
+    expect(s?.pos).toBeCloseTo(0.5, 9)
+    expect(s?.name).toBe('½')
+    expect(s?.nested).toBe(false)
+  })
+  it('snaps to the golden point of a segment when that reads truer', () => {
+    const s = snapCut(0.81, [0.5])
+    expect(s?.pos).toBeCloseTo(0.809, 3)
+    expect(s?.name).toBe('1/φ')
+    expect(s?.nested).toBe(true)
+  })
+  it('declines (null) instead of crowding an existing cut', () => {
+    expect(snapCut(0.5, [0.5])).toBeNull()
   })
 })

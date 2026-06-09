@@ -32,23 +32,29 @@ const NESTED_RATIOS = [0.5, 1 / 3, 2 / 3, 0.382, 0.618, Math.SQRT2 - 1, 2 - Math
 const EPS = 1e-6
 const near = (a: number, b: number): boolean => Math.abs(a - b) < EPS
 
+/** A snap never moves a cut farther than this — a click with no free canon position nearby is
+ * DECLINED (with feedback), not teleported to a ratio the user never aimed at. */
+const SNAP_REACH = 0.07
+
 /**
  * Snap a rough human cut against the existing same-axis anchors. Candidates come from BOTH systems:
  * the global canon positions of the whole canvas, and the canon ratios of each segment between
  * existing anchors (so a second cut can land on "the golden point of the right half" — how designers
  * really subdivide). Nearest candidate wins; on a near-tie the global read is preferred because it is
- * the simpler claim. Returns null if the cut would crowd an existing anchor.
+ * the simpler claim. Returns null if the cut would crowd an existing anchor or sit beyond SNAP_REACH
+ * of every free canon position.
  */
 function snapAgainst(pos: number, existing: number[]): Anchor | null {
   let best: Anchor | null = null
-  let bestD = Infinity
+  let bestBiased = Infinity
+  let bestRaw = Infinity
   const consider = (cand: Anchor, d: number, biased: number) => {
     if (existing.some((e) => Math.abs(cand.pos - e) < 0.05)) return
-    if (biased < bestD) {
-      bestD = biased
+    if (biased < bestBiased) {
+      bestBiased = biased
+      bestRaw = d
       best = { ...cand }
     }
-    void d
   }
   for (const r of RATIO_POSITIONS) {
     const d = Math.abs(pos - r)
@@ -67,7 +73,25 @@ function snapAgainst(pos: number, existing: number[]): Anchor | null {
       consider({ pos: p, frac: r, lo, hi, nested: true }, d, d + 0.0015)
     }
   }
-  return best
+  return bestRaw <= SNAP_REACH ? best : null
+}
+
+/** A snapped cut for UI consumption: where the guide lands, the proportion it represents, and the
+ * truthful name to show ("½", "1/φ of the segment", …). Null = the cut would crowd an existing one. */
+export interface SnappedCut {
+  pos: number
+  frac: number
+  name: string
+  nested: boolean
+}
+
+/** Snap one rough cut against the existing same-axis cut positions — the SAME logic the committed
+ * grid uses, exported so the bisection UI can place the line where the math will actually put it
+ * (what you see is what commits) and label it truthfully at click time. */
+export function snapCut(pos: number, existingSameAxis: number[]): SnappedCut | null {
+  const a = snapAgainst(pos, existingSameAxis)
+  if (!a || a.pos <= EPS || a.pos >= 1 - EPS) return null
+  return { pos: a.pos, frac: a.frac, name: ratioName(a.frac), nested: a.nested }
 }
 
 /** The (axis-sorted, deduped) anchors for one axis, snapped in placement order so nested snaps see

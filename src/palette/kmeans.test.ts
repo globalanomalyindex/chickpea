@@ -30,3 +30,19 @@ describe('kmeans', () => {
     expect(kmeans([], 4, 1)).toEqual([])
   })
 })
+
+describe('kmeans++ in oklab: extracts ALL the colors', () => {
+  it('a small vivid feature on a dominant background still gets its own cluster', () => {
+    // 900 near-white background pixels + a red logo (60px) + a blue accent (40px):
+    // random-pixel RGB seeding routinely lost one of the small features into the background
+    const pixels: [number, number, number][] = []
+    for (let i = 0; i < 900; i++) pixels.push([245 - (i % 8), 244 - (i % 5), 240 - (i % 7)])
+    for (let i = 0; i < 60; i++) pixels.push([210 + (i % 6), 30 + (i % 4), 40])
+    for (let i = 0; i < 40; i++) pixels.push([30 + (i % 5), 60, 200 + (i % 6)])
+    const c = kmeans(pixels, 6, 1)
+    const hasRed = c.some((x) => x.rgb[0] > 150 && x.rgb[1] < 110 && x.rgb[2] < 110)
+    const hasBlue = c.some((x) => x.rgb[2] > 150 && x.rgb[0] < 110)
+    expect(hasRed).toBe(true)
+    expect(hasBlue).toBe(true)
+  })
+})

@@ -36,7 +36,7 @@ function loadImageEl(src: string): Promise<HTMLImageElement> {
  */
 export async function loadImagePixels(
   file: File,
-  maxDim = 96,
+  maxDim = 128, // fine enough that a small-but-salient feature still contributes real pixel mass
 ): Promise<LoadedImage> {
   const dataUrl = await fileToDataUrl(file)
   const img = await loadImageEl(dataUrl)

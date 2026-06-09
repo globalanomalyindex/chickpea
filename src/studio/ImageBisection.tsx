@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
-import type { Cut } from '../grid/anchor'
+import { snapCut, type Cut } from '../grid/anchor'
 import type { Axis } from '../grid/types'
 import { loadImagePixels } from '../io/image-io'
 import { kmeans, type ColorWeight } from '../palette/kmeans'
@@ -11,6 +11,8 @@ const CREAM = '#f4f0e8'
 const STEEL = '#4e6a7a'
 const SLATE_INK = '#2a2e31'
 const HAIR = 'rgba(244,240,232,0.22)'
+/** the dark halo that keeps a cream hairline readable over a light photo */
+const LINE_HALO = '0 0 0 1px rgba(42,46,49,0.7)'
 const PALETTE_K = 6
 
 interface Props {
@@ -24,6 +26,26 @@ interface Live {
   pos: number // normalized 0..1 on the axis
 }
 
+/** A committed cut plus the truthful ratio name it snapped to (shown on its label). */
+interface PlacedCut extends Cut {
+  name: string
+}
+
+/** same-axis positions, excluding (when dragging) the cut being moved. */
+const sameAxis = (cuts: PlacedCut[], axis: Axis, excludeIdx = -1): number[] =>
+  cuts.filter((c, i) => c.axis === axis && i !== excludeIdx).map((c) => c.pos)
+
+/** Re-derive names for cuts that arrive nameless (re-bisecting an already-committed image): snap
+ * each in placement order, exactly as they were snapped when first placed. */
+function withNames(cuts: Cut[]): PlacedCut[] {
+  const out: PlacedCut[] = []
+  for (const c of cuts) {
+    const s = snapCut(c.pos, sameAxis(out, c.axis))
+    if (s) out.push({ axis: c.axis, pos: s.pos, name: s.name })
+  }
+  return out
+}
+
 /**
  * Upload an image and bisect it with the cursor-entry-direction gesture. Entering the
  * image from top/bottom arms a vertical cut; from left/right, a horizontal cut. A live
@@ -34,19 +56,26 @@ interface Live {
 export function ImageBisection({ onCommit, initial = null }: Props) {
   const [dataUrl, setDataUrl] = useState<string | null>(initial?.dataUrl ?? null)
   const [palette, setPalette] = useState<ColorWeight[]>(initial?.palette ?? [])
-  const [cuts, setCuts] = useState<Cut[]>(initial?.cuts ?? [])
+  const [cuts, setCuts] = useState<PlacedCut[]>(() => withNames(initial?.cuts ?? []))
   const [aspect, setAspect] = useState<number>(initial?.aspect ?? 1) // image w/h, so it shows uncropped
   const [live, setLive] = useState<Live | null>(null)
   const [fallbackAxis, setFallbackAxis] = useState<Axis | null>(null)
   const [busy, setBusy] = useState(false)
   const [dragErr, setDragErr] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
 
   const imgRef = useRef<HTMLDivElement>(null)
   const prevPt = useRef<Point | null>(null)
   const draggingCut = useRef<number | null>(null)
+  const dragStartPos = useRef<number>(0)
   const inside = useRef(false)
 
   const swatch = useMemo(() => dyadicLayout(palette), [palette])
+  // where the armed guide would land if clicked right now — drawn as a solid preview line
+  const liveSnap = useMemo(
+    () => (live ? snapCut(live.pos, sameAxis(cuts, live.axis)) : null),
+    [live, cuts],
+  )
 
   const ingest = useCallback(async (file: File) => {
     setBusy(true)
@@ -153,14 +182,29 @@ export function ImageBisection({ onCommit, initial = null }: Props) {
     setLive(null)
   }
 
+  /** Snap-place a cut: the line lands exactly where the committed grid will put it (same canon,
+   * same nested logic), labelled with the proportion it took. Crowding an existing cut declines
+   * with a notice instead of silently vanishing at commit time. */
+  const placeCut = (axis: Axis, rawPos: number) => {
+    setCuts((cs) => {
+      const s = snapCut(rawPos, sameAxis(cs, axis))
+      if (!s) {
+        setNotice('no free ratio position near that click')
+        return cs
+      }
+      setNotice(null)
+      return [...cs, { axis, pos: s.pos, name: s.name }]
+    })
+  }
+
   const onClickPlace = (e: React.MouseEvent) => {
     if (draggingCut.current !== null) return
-    // entry-direction path: a live guide is armed → drop it where it sits
+    // entry-direction path: a live guide is armed → snap it into place
     if (live) {
-      setCuts((cs) => [...cs, { axis: live.axis, pos: Number(live.pos.toFixed(4)) }])
+      placeCut(live.axis, live.pos)
       return
     }
-    // touch / no-entry fallback: a V/H pill is selected → drop a cut at the tap position
+    // touch / no-entry fallback: a V/H pill is selected → snap a cut at the tap position
     if (fallbackAxis) {
       const el = imgRef.current
       if (!el) return
@@ -168,31 +212,49 @@ export function ImageBisection({ onCommit, initial = null }: Props) {
       const x = (e.clientX - r.left) / (r.width || 1)
       const y = (e.clientY - r.top) / (r.height || 1)
       if (x < 0 || y < 0 || x > 1 || y > 1) return
-      const pos = fallbackAxis === 'v' ? x : y
-      setCuts((cs) => [...cs, { axis: fallbackAxis, pos: Number(Math.min(1, Math.max(0, pos)).toFixed(4)) }])
+      placeCut(fallbackAxis, fallbackAxis === 'v' ? x : y)
     }
   }
 
   const startDragCut = (i: number) => (e: React.PointerEvent) => {
     e.stopPropagation()
     draggingCut.current = i
+    dragStartPos.current = cuts[i]?.pos ?? 0
     ;(e.target as HTMLElement).setPointerCapture?.(e.pointerId)
   }
 
   const endDragCut = (e: React.PointerEvent) => {
     const di = draggingCut.current
     if (di === null) return
-    // drop off the image → delete the cut
     const curr = imgPoint(e)
     const size = imgSize()
     const off = !curr || !isInside(curr, size)
-    if (off) setCuts((cs) => cs.filter((_, i) => i !== di))
+    if (off) {
+      // drop off the image → delete the cut
+      setCuts((cs) => cs.filter((_, i) => i !== di))
+    } else {
+      // released inside → snap the freely-dragged line back onto the canon (or revert if crowded)
+      setCuts((cs) => {
+        const c = cs[di]
+        if (!c) return cs
+        const s = snapCut(c.pos, sameAxis(cs, c.axis, di))
+        const next = [...cs]
+        if (s) {
+          next[di] = { axis: c.axis, pos: s.pos, name: s.name }
+          setNotice(null)
+        } else {
+          next[di] = { ...c, pos: dragStartPos.current }
+          setNotice('no free ratio position there; cut returned')
+        }
+        return next
+      })
+    }
     draggingCut.current = null
   }
 
   const removeCut = (i: number) => setCuts((cs) => cs.filter((_, idx) => idx !== i))
 
-  const commit = () => dataUrl && onCommit(cuts, palette, dataUrl, aspect)
+  const commit = () => dataUrl && onCommit(cuts.map(({ axis, pos }) => ({ axis, pos })), palette, dataUrl, aspect)
 
   if (!dataUrl) {
     return (
@@ -239,8 +301,12 @@ export function ImageBisection({ onCommit, initial = null }: Props) {
             style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'fill' }}
           />
 
-          {/* live guide tracking the pointer */}
+          {/* live guide tracking the pointer, plus a solid preview at the position the cut will
+              actually SNAP to (what you see is what commits) with its truthful ratio name */}
           {live && <Guide axis={live.axis} pos={live.pos} ghost />}
+          {live && liveSnap && (
+            <Guide axis={live.axis} pos={liveSnap.pos} preview name={liveSnap.name} />
+          )}
 
           {/* committed cuts: cream hairline + handle + mono readout */}
           {cuts.map((c, i) => (
@@ -248,6 +314,7 @@ export function ImageBisection({ onCommit, initial = null }: Props) {
               key={i}
               axis={c.axis}
               pos={c.pos}
+              name={c.name}
               onHandleDown={startDragCut(i)}
               onDelete={() => removeCut(i)}
             />
@@ -269,7 +336,8 @@ export function ImageBisection({ onCommit, initial = null }: Props) {
                 pointerEvents: 'none',
               }}
             >
-              {live.axis === 'v' ? 'VERTICAL' : 'HORIZONTAL'} · click to cut
+              {live.axis === 'v' ? 'VERTICAL' : 'HORIZONTAL'}
+              {liveSnap ? ` · snaps to ${liveSnap.name}` : ''} · click to cut
             </div>
           )}
         </div>
@@ -301,33 +369,64 @@ export function ImageBisection({ onCommit, initial = null }: Props) {
       <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: CREAM, opacity: 0.55 }}>
         {cuts.length} cut{cuts.length === 1 ? '' : 's'} placed
       </div>
+      {notice && (
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: '#e0c08c' }} role="status">
+          {notice}
+        </div>
+      )}
     </div>
   )
 }
 
-/** A cream hairline at a normalized position, optionally with a draggable handle + readout. */
+/** A cream hairline at a normalized position, optionally with a draggable handle + readout.
+ * Every line carries a thin slate halo so it stays visible over light photographs.
+ *   ghost   — the dashed line tracking the raw pointer
+ *   preview — the solid line at the SNAP target (where a click will actually land), with its name
+ */
 function Guide({
   axis,
   pos,
+  name,
   ghost,
+  preview,
   onHandleDown,
   onDelete,
 }: {
   axis: Axis
   pos: number
+  name?: string
   ghost?: boolean
+  preview?: boolean
   onHandleDown?: (e: React.PointerEvent) => void
   onDelete?: () => void
 }) {
   const pct = `${pos * 100}%`
   const isV = axis === 'v'
-  const cutName = `${isV ? 'V' : 'H'} ${pos.toFixed(2)}`
+  const passive = ghost || preview
+  const cutName = `${isV ? 'V' : 'H'} ${name ?? pos.toFixed(2)}`
   const line: React.CSSProperties = isV
-    ? { position: 'absolute', left: pct, top: 0, bottom: 0, width: 0, borderLeft: `1px ${ghost ? 'dashed' : 'solid'} ${CREAM}` }
-    : { position: 'absolute', top: pct, left: 0, right: 0, height: 0, borderTop: `1px ${ghost ? 'dashed' : 'solid'} ${CREAM}` }
+    ? { position: 'absolute', left: pct, top: 0, bottom: 0, width: 0, borderLeft: `1px ${ghost ? 'dashed' : 'solid'} ${CREAM}`, boxShadow: LINE_HALO }
+    : { position: 'absolute', top: pct, left: 0, right: 0, height: 0, borderTop: `1px ${ghost ? 'dashed' : 'solid'} ${CREAM}`, boxShadow: LINE_HALO }
   return (
-    <div style={{ ...line, opacity: ghost ? 0.7 : 1, pointerEvents: ghost ? 'none' : 'auto' }}>
-      {!ghost && (
+    <div style={{ ...line, opacity: ghost ? 0.55 : 1, pointerEvents: passive ? 'none' : 'auto' }}>
+      {preview && name && (
+        <div
+          style={{
+            position: 'absolute',
+            ...(isV ? { left: 6, bottom: 6 } : { bottom: 6, left: 6 }),
+            fontFamily: 'var(--font-mono)',
+            fontSize: 10.5,
+            letterSpacing: '0.06em',
+            color: SLATE_INK,
+            background: CREAM,
+            padding: '1px 5px',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {name}
+        </div>
+      )}
+      {!passive && (
         <>
           <div
             role="button"
