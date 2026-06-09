@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { mulberry32 } from '../grid/prng'
-import { sampleGenome, genomeToPalette, mutateGenome } from './generator'
+import { sampleGenome, genomeToPalette, mutateGenome, apportionModes } from './generator'
 import { maxChroma } from './oklch'
 import { circularResultant } from './sampling'
 
@@ -75,7 +75,36 @@ describe('procedural sampler', () => {
     const g = sampleGenome(rng)
     const m = mutateGenome(g, rng, 1)
     expect(m.lHi).toBeGreaterThan(m.lLo)
+    expect(m.modeWeights.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 6)
     const pal = genomeToPalette(m, 6, rng)
     expect(pal.length).toBe(6)
+  })
+
+  it('apportionModes spreads weighted shares across the ladder (largest remainder, interleaved)', () => {
+    const order = apportionModes([0.6, 0.4], 5)
+    expect(order.length).toBe(5)
+    expect(order.filter((m) => m === 0).length).toBe(3)
+    expect(order.filter((m) => m === 1).length).toBe(2)
+    // the minority family is interspersed, not pooled at one end
+    expect(new Set(order.slice(0, 3))).toContain(1)
+  })
+
+  it('a ramp genome travels hue monotonically with lightness (nature\'s gradients)', () => {
+    const rng = mulberry32(7)
+    const g = sampleGenome(rng)
+    const ramp = { ...g, hueDrift: 120, modeCenters: [200], modeWeights: [1], modeKappaMul: [1] }
+    const pal = genomeToPalette(ramp, 6, rng)
+    let signed = 0
+    for (let i = 1; i < pal.length; i++) signed += ((pal[i].H - pal[i - 1].H + 540) % 360) - 180
+    expect(Math.abs(signed)).toBeGreaterThan(80) // ~120° of travel, jitter allowed
+  })
+
+  it('an atmospheric cast keeps every color inside its gamut headroom', () => {
+    const rng = mulberry32(11)
+    const g = sampleGenome(rng)
+    const casted = { ...g, castA: 0.018, castB: -0.015 }
+    for (const c of genomeToPalette(casted, 8, rng)) {
+      expect(c.C).toBeLessThanOrEqual(maxChroma(c.L, c.H) + 1e-6)
+    }
   })
 })

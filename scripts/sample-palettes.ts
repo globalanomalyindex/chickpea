@@ -2,9 +2,9 @@
 //   npx vite-node scripts/sample-palettes.ts
 import { generatePaletteOklch } from '../src/palette/engine'
 import { paletteFromOklch } from '../src/palette/engine'
-import { scorePalette } from '../src/palette/score'
+import { scorePalette, hueClusters } from '../src/palette/score'
 import { deltaE } from '../src/palette/oklch'
-import { circularResultant } from '../src/palette/sampling'
+import { circularResultant, hueDelta } from '../src/palette/sampling'
 
 const mean = (a: number[]) => (a.length ? a.reduce((s, v) => s + v, 0) / a.length : 0)
 const std = (a: number[]) => {
@@ -32,6 +32,7 @@ function analyze(seed: number, count: number) {
       harmony: +sb.harmony.toFixed(2),
       focal: +sb.focal.toFixed(2),
       antiMud: +sb.antiMud.toFixed(2),
+      pigment: +sb.pigment.toFixed(2),
     },
     lSpread: +(Math.max(...Ls) - Math.min(...Ls)).toFixed(3),
     minDeltaE: +minDE.toFixed(3),
@@ -54,6 +55,76 @@ const pct = (n: number) => +((100 * n) / N).toFixed(1)
 const chromaCount = (a: (typeof all)[number]) => a.colors.filter((c) => c.C > 0.045).length
 const darkestL = (a: (typeof all)[number]) => Math.min(...a.colors.map((c) => c.L))
 const lightestL = (a: (typeof all)[number]) => Math.max(...a.colors.map((c) => c.L))
+
+// ramp = chromatic hues travel monotonically (≥70% of total movement one way) over ≥minSpan° with
+// L, in GRADUAL steps (each ≤55°). Without the step cap this also counts any multi-family palette
+// whose clusters sit at their natural lightness (blue dark, yellow light — gamut physics sorts hue
+// families by L), which is a triad, not a gradient.
+const rampSpan = (a: (typeof all)[number]) => {
+  const cs = a.colors.filter((c) => c.C > 0.045).sort((x, y) => x.L - y.L)
+  if (cs.length < 4) return 0
+  let signed = 0
+  let total = 0
+  let maxStep = 0
+  for (let i = 1; i < cs.length; i++) {
+    const d = hueDelta(cs[i - 1].H, cs[i].H)
+    signed += d
+    total += Math.abs(d)
+    maxStep = Math.max(maxStep, Math.abs(d))
+  }
+  return total > 1e-6 && Math.abs(signed) / total >= 0.7 && maxStep <= 55 ? Math.abs(signed) : 0
+}
+const isRamp = (a: (typeof all)[number]) => rampSpan(a) >= 40
+const isStrongRamp = (a: (typeof all)[number]) => rampSpan(a) >= 85 // a true sunset, not analogous drift
+const clusterCount = (a: (typeof all)[number]) => {
+  const maxC = Math.max(...a.colors.map((c) => c.C))
+  return hueClusters(a.colors.filter((c) => c.C > 0.03 * maxC).map((c) => ({ H: c.H, C: c.C }))).length
+}
+// dominant family: ≥2 clusters and the largest holds 55..85% of the chroma mass (60-30-10, not mono)
+const hasDominantFamily = (a: (typeof all)[number]) => {
+  const maxC = Math.max(...a.colors.map((c) => c.C))
+  const chroma = a.colors.filter((c) => c.C > 0.03 * maxC)
+  const centers = hueClusters(chroma.map((c) => ({ H: c.H, C: c.C })))
+  if (centers.length < 2) return false
+  const gap = (x: number, y: number) => Math.abs(((x - y + 540) % 360) - 180)
+  const mass = centers.map(() => 0)
+  let total = 0
+  for (const c of chroma) {
+    let best = 0
+    for (let i = 1; i < centers.length; i++) if (gap(c.H, centers[i]) < gap(c.H, centers[best])) best = i
+    mass[best] += c.C
+    total += c.C
+  }
+  const top = Math.max(...mass) / (total || 1)
+  return top >= 0.55 && top <= 0.85
+}
+const histo = (xs: number[]) => {
+  const h: Record<string, number> = {}
+  for (const x of xs) h[x] = (h[x] ?? 0) + 1
+  return h
+}
+// inter-seed diversity: mean pairwise distance of normalized palette signatures. If the engine
+// collapses onto one genre this number craters — the alarm the grid engine taught us to keep.
+const interSeedDiversity = () => {
+  const sig = all.map((a) => [
+    a.meanC / 0.2,
+    a.hueResultant,
+    darkestL(a),
+    lightestL(a),
+    a.lSpread,
+    chromaCount(a) / COUNT,
+  ])
+  let sum = 0
+  let cnt = 0
+  for (let i = 0; i < sig.length; i++)
+    for (let j = 0; j < i; j++) {
+      let d = 0
+      for (let k = 0; k < sig[i].length; k++) d += (sig[i][k] - sig[j][k]) ** 2
+      sum += Math.sqrt(d)
+      cnt++
+    }
+  return sum / cnt
+}
 const stats = {
   seeds: N,
   count: COUNT,
@@ -73,6 +144,13 @@ const stats = {
   pctTightHue: pct(all.filter((a) => a.hueResultant > 0.85).length),
   pctSpreadHue: pct(all.filter((a) => a.hueResultant < 0.45).length),
   meanChromaCount: +mean(all.map(chromaCount)).toFixed(2),
+  // --- genre coverage for the upgraded engine ---
+  pctRamp: pct(all.filter(isRamp).length), // monotone hue travel with lightness (sunset/ocean)
+  pctStrongRamp: pct(all.filter(isStrongRamp).length),
+  pctLowKeyMoody: pct(all.filter((a) => lightestL(a) < 0.55).length),
+  pctDominantFamily: pct(all.filter(hasDominantFamily).length), // 60-30-10 hue structure
+  clusterHistogram: histo(all.map(clusterCount)),
+  interSeedDiversity: +interSeedDiversity().toFixed(3), // mean pairwise feature distance — collapse alarm
 }
 const dudSeeds = [193, 209, 417, 321, 65, 289, 353]
 const duds = dudSeeds.map((s) => {

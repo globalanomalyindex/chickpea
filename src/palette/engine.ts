@@ -13,7 +13,7 @@
  */
 
 import { mulberry32, type Rng } from '../grid/prng'
-import { gamutMapToRgb, deltaE, type Oklch } from './oklch'
+import { gamutMapToRgb, deltaE, maxChroma, type Oklch } from './oklch'
 import { rgbToHex, rgbToHsl } from './hsl'
 import type { PaletteColor } from './generate'
 import { sampleGenome, mutateGenome, genomeToPalette, type Genome } from './generator'
@@ -25,40 +25,63 @@ const wrapHue = (h: number): number => ((h % 360) + 360) % 360
 
 const MIN_LIGHTNESS_SPREAD = 0.28 // gentle floor — high enough for usable contrast, low enough that
 // a deliberate high-key (pastel) or low-key (moody) palette isn't stretched back into a full ladder
-const DEDUPE_DELTA = 0.072 // perceptual distinctness floor — clears "near-mono muddy near-duplicates"
+const DEDUPE_DELTA = 0.08 // perceptual distinctness floor — audit found 0.072 let near-twins read samey
 const POPULATION = 30 // candidate genomes sampled per generation
-const CLIMB_STEPS = 20 // hill-climb refinements of the champion
+const ELITES = 3 // distinct champions that each get their own hill-climb (separate basins)
+const CLIMB_STEPS = 12 // hill-climb refinements per elite
 
 // ---- selector ----
 
-/** Search a population of genomes + hill-climb the champion; return the best raw OKLCH palette. */
+/** Search a population of genomes, then hill-climb the top ELITES independently and keep the global
+ * winner. Climbing several basins instead of one means a near-miss second genre (say, a ramp that
+ * sampled slightly rough) can refine into the champion instead of losing to the safest first draw —
+ * better palettes AND better variety across seeds. Returns the best raw OKLCH palette. */
 function selectBest(rng: Rng, count: number): Oklch[] {
-  let best: Oklch[] = []
-  let bestGenome: Genome | null = null
-  let bestScore = -Infinity
+  interface Cand {
+    g: Genome
+    pal: Oklch[]
+    s: number
+  }
+  const pop: Cand[] = []
   for (let i = 0; i < POPULATION; i++) {
     const g = sampleGenome(rng)
     const pal = genomeToPalette(g, count, rng)
-    const s = scorePalette(pal).total
-    if (s > bestScore) {
-      bestScore = s
-      best = pal
-      bestGenome = g
-    }
+    pop.push({ g, pal, s: scorePalette(pal).total })
   }
-  // hill-climb: nudge the champion's genome; keep any improvement. Amplitude decays for fine-tuning.
-  for (let i = 0; i < CLIMB_STEPS && bestGenome; i++) {
-    const amt = lerp(0.9, 0.3, i / Math.max(1, CLIMB_STEPS - 1))
-    const g = mutateGenome(bestGenome, rng, amt)
-    const pal = genomeToPalette(g, count, rng)
-    const s = scorePalette(pal).total
-    if (s > bestScore) {
-      bestScore = s
-      best = pal
-      bestGenome = g
+  pop.sort((a, b) => b.s - a.s)
+  // genre-aware elites: the top two by score, plus the best KEYED candidate (all-dark moody or
+  // all-light pastel) when one exists. Winner-take-all was discarding ~90% of sampled moody
+  // genomes — the wide-ladder template out-muscled them before refinement could help. Reserving
+  // a basin keeps the rare genres alive without lowering the quality bar: the key still has to
+  // out-score everyone AFTER its climb to win.
+  const isKeyed = (c: Cand): boolean => {
+    let lo = 1
+    let hi = 0
+    for (const col of c.pal) {
+      lo = Math.min(lo, col.L)
+      hi = Math.max(hi, col.L)
     }
+    return hi < 0.52 || lo > 0.52
   }
-  return best
+  const elites: Cand[] = pop.slice(0, 2)
+  const key = pop.find(isKeyed)
+  if (key && !elites.includes(key)) elites.push(key)
+  else if (pop[2]) elites.push(pop[2])
+
+  let best = pop[0]
+  for (let e = 0; e < Math.min(ELITES, elites.length); e++) {
+    let cur = elites[e]
+    // amplitude decays for fine-tuning; keep any improvement
+    for (let i = 0; i < CLIMB_STEPS; i++) {
+      const amt = lerp(0.9, 0.3, i / Math.max(1, CLIMB_STEPS - 1))
+      const g = mutateGenome(cur.g, rng, amt)
+      const pal = genomeToPalette(g, count, rng)
+      const s = scorePalette(pal).total
+      if (s > cur.s) cur = { g, pal, s }
+    }
+    if (cur.s > best.s) best = cur
+  }
+  return best.pal
 }
 
 // ---- harmonizer ----
@@ -94,24 +117,53 @@ function enforceSpread(cs: Oklch[]): Oklch[] {
 }
 
 /** Nudge apart colors that are perceptually identical (small ΔE) until each clears EVERY other.
- * Only hue/chroma move; lightness is left alone so the enforced spread survives. */
+ * Only hue/chroma move; lightness is left alone so the enforced spread survives. Candidate nudges
+ * go BOTH ways and the gentlest one that clears wins — the old fix always swung +26° toward one
+ * side, which could kink a careful scheme; this one preserves it. */
 function dedupe(cs: Oklch[]): Oklch[] {
   const out = cs.map((c) => ({ ...c }))
+  const minTo = (c: Oklch, skip: number): number => {
+    let m = Infinity
+    for (let j = 0; j < out.length; j++) if (j !== skip) m = Math.min(m, deltaE(c, out[j]))
+    return m
+  }
   for (let i = 0; i < out.length; i++) {
     let guard = 0
-    while (guard++ < 12) {
-      const collides = out.some((o, j) => j !== i && deltaE(out[i], o) < DEDUPE_DELTA)
-      if (!collides) break
-      out[i] = { L: out[i].L, C: Math.min(0.26, out[i].C + 0.02), H: wrapHue(out[i].H + 26) }
+    while (guard++ < 12 && minTo(out[i], i) < DEDUPE_DELTA) {
+      const c = out[i]
+      const opts: Oklch[] = [
+        { L: c.L, C: c.C, H: wrapHue(c.H + 14) },
+        { L: c.L, C: c.C, H: wrapHue(c.H - 14) },
+        { L: c.L, C: Math.min(0.26, c.C + 0.025), H: wrapHue(c.H + 10) },
+        { L: c.L, C: Math.max(0.02, c.C - 0.025), H: wrapHue(c.H - 10) },
+        { L: c.L, C: Math.min(0.26, c.C + 0.02), H: wrapHue(c.H + 26) },
+        { L: c.L, C: Math.min(0.26, c.C + 0.02), H: wrapHue(c.H - 26) },
+      ]
+      const clearing = opts.filter((o) => minTo(o, i) >= DEDUPE_DELTA)
+      if (clearing.length > 0) {
+        let bi = 0
+        for (let k = 1; k < clearing.length; k++) if (deltaE(clearing[k], c) < deltaE(clearing[bi], c)) bi = k
+        out[i] = clearing[bi]
+        break
+      }
+      // nothing clears in one move: take the most progress and loop
+      let bi = 0
+      for (let k = 1; k < opts.length; k++) if (minTo(opts[k], i) > minTo(opts[bi], i)) bi = k
+      out[i] = opts[bi]
     }
   }
   return out
 }
 
-/** "Hero-ness": vivid AND well-lit (mid lightness). Peaks near L≈0.6, scales with chroma. */
+/** "Hero-ness": saturated AND well-lit. Saturation is judged RELATIVE to the color's own gamut
+ * headroom with a real-chroma ramp — absolute chroma made 86% of heroes magenta/purple (the
+ * deepest sRGB region) and locked gold, vermilion and cyan out of the lead (audit census). */
 function heroScore(c: Oklch): number {
   const midL = 1 - Math.abs(c.L - 0.6) / 0.6
-  return c.C * (0.35 + 0.65 * clamp01(midL))
+  const head = maxChroma(c.L, c.H)
+  const rel = head > 0.02 ? Math.min(1, c.C / head) : 0
+  const real = clamp01((c.C - 0.05) / 0.06) // C 0.05→0.11 ramps in; faint tints can't lead
+  return rel * real * (0.35 + 0.65 * clamp01(midL))
 }
 
 /** Hero color first (the dominant module's fill); the rest by descending chroma. */

@@ -1,6 +1,38 @@
 import { describe, it, expect } from 'vitest'
 import { mulberry32 } from '../grid/prng'
-import { gaussian, vonMises, warpedLadder, circularResultant, hueGap, wrap360 } from './sampling'
+import { gaussian, vonMises, warpedLadder, circularResultant, hueGap, wrap360, sampleWeights, hueDelta } from './sampling'
+
+describe('mixture weights (60-30-10 structure)', () => {
+  it('returns positive weights summing to 1, deterministic for a seed', () => {
+    const a = sampleWeights(mulberry32(5), 4, 1.8)
+    const b = sampleWeights(mulberry32(5), 4, 1.8)
+    expect(a).toEqual(b)
+    expect(a.reduce((x, y) => x + y, 0)).toBeCloseTo(1, 9)
+    for (const w of a) expect(w).toBeGreaterThan(0.02) // floor: no family silently vanishes
+  })
+
+  it('n=1 is the whole pie', () => {
+    expect(sampleWeights(mulberry32(1), 1, 2)).toEqual([1])
+  })
+
+  it('dominance produces genuinely asymmetric shares across draws', () => {
+    let asym = 0
+    for (let s = 0; s < 60; s++) {
+      const w = sampleWeights(mulberry32(s * 3 + 1), 3, 2.2)
+      if (Math.max(...w) > 0.55) asym++
+    }
+    expect(asym).toBeGreaterThan(15)
+  })
+})
+
+describe('signed hue rotation', () => {
+  it('takes the short way around, signed', () => {
+    expect(hueDelta(350, 10)).toBe(20)
+    expect(hueDelta(10, 350)).toBe(-20)
+    expect(hueDelta(40, 90)).toBe(50)
+    expect(Math.abs(hueDelta(0, 180))).toBe(180)
+  })
+})
 
 describe('sampling primitives', () => {
   it('gaussian is ~mean 0, ~sd 1 over many draws', () => {

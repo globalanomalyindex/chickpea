@@ -93,3 +93,28 @@ export function circularResultant(huesDeg: number[]): number {
 export function hueGap(a: number, b: number): number {
   return Math.abs(((a - b + 540) % 360) - 180)
 }
+
+/** Signed smallest rotation (degrees, -180..180) from hue `a` to hue `b`. The building block for
+ * measuring whether hues PROGRESS around the wheel (a ramp) vs scatter. */
+export function hueDelta(a: number, b: number): number {
+  return ((b - a + 540) % 360) - 180
+}
+
+/**
+ * Dirichlet-style mixture weights: `n` positive weights summing to 1, with `dominance` controlling
+ * asymmetry. Each weight starts as an exponential draw (−ln u, a flat Dirichlet) then is raised to
+ * the `dominance` power: 1 = flat (all families roughly equal), 2.. = one family takes the lion's
+ * share. This is what gives a palette 60-30-10 structure — a dominant hue family with counterpoints
+ * — instead of every family getting an identical slice.
+ */
+export function sampleWeights(rng: Rng, n: number, dominance: number): number[] {
+  if (n <= 1) return [1]
+  const raw = Array.from({ length: n }, () => Math.pow(-Math.log(Math.max(1e-12, rng())), dominance))
+  const sum = raw.reduce((a, b) => a + b, 0)
+  // floor each share so no mode silently vanishes (every sampled family shows up in the palette)
+  const floor = 0.1 / n
+  const w = raw.map((r) => r / sum)
+  const flo = w.map((v) => Math.max(v, floor))
+  const fsum = flo.reduce((a, b) => a + b, 0)
+  return flo.map((v) => v / fsum)
+}
