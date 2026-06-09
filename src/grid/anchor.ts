@@ -14,7 +14,11 @@ export interface Cut {
  * These are the only positions an anchor guide may land on, so every committed cut is
  * provably one of the design ratios.
  */
-export const RATIO_POSITIONS = [0.5, 1 / 3, 2 / 3, 0.382, 0.618, 0.25, 0.75, 0.236, 0.764, 0.2, 0.8]
+export const RATIO_POSITIONS = [
+  0.5, 1 / 3, 2 / 3, 0.382, 0.618, 0.25, 0.75, 0.236, 0.764, 0.2, 0.8,
+  // added for more module variety: sixths, eighths, and the √2-rectangle sections
+  1 / 6, 5 / 6, 0.125, 0.375, 0.625, 0.875, 1 - 1 / Math.SQRT2, 1 / Math.SQRT2,
+]
 
 /** Nearest ratio-correct position to a rough human cut. */
 export function snapToRatio(pos: number): number {
@@ -56,7 +60,7 @@ function addUnique(positions: number[], pos: number) {
  * The returned guides always include the snapped anchors, so `checkBounds`/`checkTiling`
  * hold for every seed and the human intent is preserved exactly.
  */
-export function buildAnchoredGrid(cuts: Cut[], seed: number): Grid {
+export function buildAnchoredGrid(cuts: Cut[], seed: number, aspect = 1): Grid {
   const rng: Rng = mulberry32(seed)
 
   // 1. snapped, de-duplicated anchor positions per axis
@@ -121,7 +125,7 @@ export function buildAnchoredGrid(cuts: Cut[], seed: number): Grid {
     seed,
     generator: 'recursive',
     params: { kind: 'recursive', targetModules: target, splitRatios: SPLIT_RATIOS, vBias: 0.5 },
-    aspect: 1,
+    aspect,
     guides,
     modules,
     ratios,
@@ -155,5 +159,13 @@ export function ratioName(pos: number): string {
   if (near(pos, 0.764)) return '3−√5' // complement of √5−2, ≈ 0.764
   if (near(pos, 0.2)) return '⅕'
   if (near(pos, 0.8)) return '⅘'
+  if (near(pos, 1 / 6)) return '⅙'
+  if (near(pos, 5 / 6)) return '⅚'
+  if (near(pos, 0.125)) return '⅛'
+  if (near(pos, 0.375)) return '⅜'
+  if (near(pos, 0.625)) return '⅝'
+  if (near(pos, 0.875)) return '⅞'
+  if (near(pos, 1 - 1 / Math.SQRT2)) return '1−1/√2' // ≈ 0.293, the √2-rectangle section
+  if (near(pos, 1 / Math.SQRT2)) return '1/√2' // ≈ 0.707
   return pos.toFixed(3)
 }

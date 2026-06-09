@@ -11,7 +11,12 @@ const pct = (n: number, total: number) => +((100 * n) / total).toFixed(1)
 function analyze(seed: number, dials: Dials) {
   const g = generateGrid(seed, dials)
   const areas = g.modules.map((m) => m.w * m.h)
-  const aspects = g.modules.map((m) => Math.max(m.w / m.h, m.h / m.w))
+  // RENDERED aspect: unit aspect times the canvas aspect — what the cell actually looks like.
+  const ca = g.aspect || 1
+  const aspects = g.modules.map((m) => {
+    const k = (m.w / m.h) * ca
+    return Math.max(k, 1 / k)
+  })
   const sb = scoreGrid(g, dials)
   const valid = checkBounds(g.modules, 1e-9) && checkTiling(g.modules, 1e-9).covered && checkCrispGuides(g)
   const areaHerf = areas.reduce((s, a) => s + a * a, 0)
@@ -21,6 +26,7 @@ function analyze(seed: number, dials: Dials) {
     guides: g.guides.length,
     score: +sb.total.toFixed(3),
     valid,
+    aspect: +(g.aspect ?? 1).toFixed(3),
     effCells: +(1 / areaHerf).toFixed(2),
     maxAspect: +Math.max(...aspects).toFixed(2),
     sliverFrac: +(aspects.filter((a) => a > 4).length / g.modules.length).toFixed(3),
@@ -63,6 +69,7 @@ const stats = {
   pctWithSliver: pct(all.filter((a) => a.maxAspect > 4).length, N), // grids containing any >4:1 cell
   pctHeavySliver: pct(all.filter((a) => a.sliverFrac > 0.15).length, N),
   // --- style coverage: styles should EMERGE, none named ---
+  pctNonSquare: pct(all.filter((a) => Math.abs(a.aspect - 1) > 0.01).length, N),
   pctLattice: pct(all.filter((a) => a.lattice).length, N),
   pctClearlyLattice: pct(all.filter((a) => a.alignment > 0.8 && a.crisp > 0.7).length, N),
   pctClearHierarchy: pct(all.filter((a) => a.hierarchy > 0.45).length, N),

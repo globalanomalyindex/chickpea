@@ -14,9 +14,9 @@ const HAIR = 'rgba(244,240,232,0.22)'
 const PALETTE_K = 6
 
 interface Props {
-  onCommit: (cuts: Cut[], palette: ColorWeight[], dataUrl: string) => void
+  onCommit: (cuts: Cut[], palette: ColorWeight[], dataUrl: string, aspect: number) => void
   /** optional initial state when re-bisecting an already-loaded image. */
-  initial?: { dataUrl: string; palette: ColorWeight[]; cuts: Cut[] } | null
+  initial?: { dataUrl: string; palette: ColorWeight[]; cuts: Cut[]; aspect: number } | null
 }
 
 interface Live {
@@ -35,6 +35,7 @@ export function ImageBisection({ onCommit, initial = null }: Props) {
   const [dataUrl, setDataUrl] = useState<string | null>(initial?.dataUrl ?? null)
   const [palette, setPalette] = useState<ColorWeight[]>(initial?.palette ?? [])
   const [cuts, setCuts] = useState<Cut[]>(initial?.cuts ?? [])
+  const [aspect, setAspect] = useState<number>(initial?.aspect ?? 1) // image w/h, so it shows uncropped
   const [live, setLive] = useState<Live | null>(null)
   const [fallbackAxis, setFallbackAxis] = useState<Axis | null>(null)
   const [busy, setBusy] = useState(false)
@@ -51,10 +52,11 @@ export function ImageBisection({ onCommit, initial = null }: Props) {
     setBusy(true)
     setDragErr(null)
     try {
-      const { pixels, dataUrl } = await loadImagePixels(file)
+      const { pixels, width, height, dataUrl } = await loadImagePixels(file)
       const pal = kmeans(pixels, PALETTE_K, 1)
       setDataUrl(dataUrl)
       setPalette(pal)
+      setAspect(height > 0 ? width / height : 1)
       setCuts([])
       setLive(null)
     } catch {
@@ -190,7 +192,7 @@ export function ImageBisection({ onCommit, initial = null }: Props) {
 
   const removeCut = (i: number) => setCuts((cs) => cs.filter((_, idx) => idx !== i))
 
-  const commit = () => dataUrl && onCommit(cuts, palette, dataUrl)
+  const commit = () => dataUrl && onCommit(cuts, palette, dataUrl, aspect)
 
   if (!dataUrl) {
     return (
@@ -219,8 +221,11 @@ export function ImageBisection({ onCommit, initial = null }: Props) {
           ref={imgRef}
           style={{
             position: 'relative',
-            width: '100%',
-            aspectRatio: '1 / 1',
+            // box matches the image's aspect and fits within 560px wide / 64vh tall, so the whole
+            // image shows uncropped and the normalized cuts land exactly where the user placed them
+            width: `min(560px, ${(64 * aspect).toFixed(2)}vh)`,
+            aspectRatio: String(aspect),
+            margin: '0 auto',
             background: '#000',
             boxShadow: '0 24px 80px rgba(0,0,0,0.32)',
             cursor: live ? 'crosshair' : 'default',
@@ -231,7 +236,7 @@ export function ImageBisection({ onCommit, initial = null }: Props) {
             src={dataUrl}
             alt="uploaded source"
             draggable={false}
-            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'fill' }}
           />
 
           {/* live guide tracking the pointer */}

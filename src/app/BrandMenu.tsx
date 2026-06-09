@@ -63,10 +63,10 @@ export function BrandMenu() {
       }}
       style={{
         position: 'fixed',
-        // anchored at the canvas's bottom-left (clearing the 268px settings rail) so it never sits
-        // over the scrolling controls, and the drop-up can expand freely outside any clipped overflow
-        left: 292,
-        bottom: 18,
+        // pinned to the viewport's bottom-left corner (over the rail's reserved bottom strip) so it
+        // reads as page chrome and never crowds the centered composition, at any stage aspect ratio
+        left: 24,
+        bottom: 22,
         zIndex: 60,
         display: 'flex',
         alignItems: 'flex-end',

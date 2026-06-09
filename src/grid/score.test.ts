@@ -62,7 +62,7 @@ describe('scoreGrid — beauty as a property of the output', () => {
       const s = scoreGrid(lattice(20, 1))
       expect(s.total).toBeLessThan(0.45)
       expect(s.aspectQuality).toBeLessThan(0.1) // ribbons are degenerate aspects
-      expect(s.ratioCoherence).toBeLessThan(0.2) // 1/20 positions are off both ratio systems
+      expect(s.hierarchy).toBeLessThan(0.1) // no dominant module; all 20 cells are equal slivers
     })
 
     it('near-dupe wobble (4×4 with every line nudged 2–3%)', () => {

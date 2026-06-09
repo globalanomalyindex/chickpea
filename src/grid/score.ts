@@ -88,10 +88,14 @@ export function scoreGrid(grid: Grid, dials: Dials = DEFAULT_DIALS): ScoreBreakd
   const effCells = 1 / areaHerf
 
   // aspectQuality — area-weighted proximity of each cell's folded aspect to a canon ratio; slivers (the
-  // most common ugliness) collapse it because the weight is area and the >6:1 cliff zeroes them out.
+  // most common ugliness) collapse it because the weight is area and the >5:1 cliff zeroes them out.
+  // Judged in RENDERED space: a module's on-screen aspect is its unit aspect times the canvas aspect,
+  // so a non-square composition is scored by how its cells actually look, not their unit-square shape.
+  const aspect = grid.aspect && grid.aspect > 0 ? grid.aspect : 1
   let aspectQuality = 0
   for (const m of mods) {
-    const R = Math.max(m.w / m.h, m.h / m.w)
+    const k = (m.w / m.h) * aspect
+    const R = Math.max(k, 1 / k)
     let d = Infinity
     for (const c of CANON_ASPECTS) d = Math.min(d, Math.abs(Math.log(R / c)))
     let q = bell(d, 0, ASPECT_TOL)
@@ -196,8 +200,12 @@ export function scoreGrid(grid: Grid, dials: Dials = DEFAULT_DIALS): ScoreBreakd
   const structure = Math.max(smooth(alignment, 0.3, 0.62), smooth(hierarchy, 0.2, 0.5))
   const coherenceGate = (0.7 + 0.3 * structure) * (0.7 + 0.3 * smooth(ratioCoherence, 0.35, 0.65))
 
-  // degeneracy tics: too much sliver area, or too many near-invisible cells.
-  const sliverArea = mods.reduce((s, m) => s + (Math.max(m.w / m.h, m.h / m.w) > 4 ? m.w * m.h : 0), 0)
+  // degeneracy tics: too much sliver area (RENDERED aspect, so non-square cells are judged honestly),
+  // or too many near-invisible cells.
+  const sliverArea = mods.reduce((s, m) => {
+    const k = (m.w / m.h) * aspect
+    return s + (Math.max(k, 1 / k) > 4 ? m.w * m.h : 0)
+  }, 0)
   const sliverTic = sliverArea > 0.15 ? 0.82 : sliverArea > 0.05 ? 0.93 : 1
   const tinyFrac = areas.filter((a) => a < 0.004).length / n
   const tinyTic = tinyFrac > 0.2 ? 0.85 : 1

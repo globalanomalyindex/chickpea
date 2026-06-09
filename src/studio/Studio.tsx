@@ -22,12 +22,24 @@ import './studio.css'
 const SLATE = '#5d646b'
 const EXPORT_PX = 1600
 
+/** Export pixel dimensions for a grid's aspect (w/h); the longest edge is EXPORT_PX. */
+function exportDims(aspect: number): { w: number; h: number } {
+  const a = aspect > 0 ? aspect : 1
+  return a >= 1 ? { w: EXPORT_PX, h: Math.round(EXPORT_PX / a) } : { w: Math.round(EXPORT_PX * a), h: EXPORT_PX }
+}
+/** On-screen box dimensions for a grid's aspect within a square `size` fit. */
+function fitBox(size: number, aspect: number): { w: number; h: number } {
+  const a = aspect > 0 ? aspect : 1
+  return a >= 1 ? { w: size, h: Math.round(size / a) } : { w: Math.round(size * a), h: size }
+}
+
 export type StudioMode = 'scratch' | 'image'
 export type InkMode = 'light' | 'dark'
 interface ImageState {
   cuts: Cut[]
   palette: ColorWeight[]
   dataUrl: string
+  aspect: number // the uploaded image's w/h, so its grid renders/exports uncropped
 }
 
 function randomSeed(): number {
@@ -123,7 +135,7 @@ export function Studio() {
   // In image mode the grid is the anchored grid (cuts fixed, math seed-varied); in scratch mode it is
   // the procedural engine driven by (seed, dials). Either way Generate/Iterate re-seed the variations.
   const grid = useMemo(() => {
-    if (mode === 'image' && image) return buildAnchoredGrid(image.cuts, seed)
+    if (mode === 'image' && image) return buildAnchoredGrid(image.cuts, seed, image.aspect)
     return generateGrid(seed, { complexity, tension, rhythm })
   }, [mode, image, seed, complexity, tension, rhythm])
 
@@ -132,8 +144,10 @@ export function Studio() {
     return generatePalette(seed, colorCount)
   }, [mode, image, seed, colorCount])
 
+  // Type is only placed on square compositions: the SVG stretches a unit viewBox, which would
+  // distort glyphs on a non-square canvas, so non-square grids stay type-free.
   const composition = useMemo(
-    () => buildComposition(grid, palette, { seed, textChance: textOn ? 0.3 : 0 }),
+    () => buildComposition(grid, palette, { seed, textChance: textOn && Math.abs(grid.aspect - 1) < 0.01 ? 0.3 : 0 }),
     [grid, palette, seed, textOn],
   )
 
@@ -168,8 +182,8 @@ export function Studio() {
   }, [])
 
   const onCommitImage = useCallback(
-    (cuts: Cut[], pal: ColorWeight[], dataUrl: string) => {
-      setImage({ cuts, palette: pal, dataUrl })
+    (cuts: Cut[], pal: ColorWeight[], dataUrl: string, aspect: number) => {
+      setImage({ cuts, palette: pal, dataUrl, aspect })
       setReBisecting(false)
       commit({ seed: randomSeed() })
     },
@@ -182,7 +196,8 @@ export function Studio() {
     setBusy(true)
     try {
       await ensureExportFontReady()
-      const blob = await compositionToPngBlob(composition, grid, { width: EXPORT_PX, height: EXPORT_PX, scale: 2 })
+      const { w, h } = exportDims(grid.aspect)
+      const blob = await compositionToPngBlob(composition, grid, { width: w, height: h, scale: 2 })
       downloadBlob(blob, exportFilename('png'))
     } finally {
       setBusy(false)
@@ -194,9 +209,10 @@ export function Studio() {
     try {
       await ensureExportFontReady()
       const fontDataUrl = await loadMafinestDataUrl().catch(() => undefined)
+      const { w, h } = exportDims(grid.aspect)
       const svg = compositionToSvg(composition, grid, {
-        width: EXPORT_PX,
-        height: EXPORT_PX,
+        width: w,
+        height: h,
         includeGrid: revealOn,
         fontDataUrl: fontDataUrl ?? undefined,
       })
@@ -211,7 +227,8 @@ export function Studio() {
   const exportRevealPng = useCallback(async () => {
     setBusy(true)
     try {
-      const blob = await gridSkeletonToPngBlob(grid, { width: EXPORT_PX, height: EXPORT_PX, ink: inkHex, annotate, scale: 2 })
+      const { w, h } = exportDims(grid.aspect)
+      const blob = await gridSkeletonToPngBlob(grid, { width: w, height: h, ink: inkHex, annotate, scale: 2 })
       downloadBlob(blob, exportFilename('png'))
     } finally {
       setBusy(false)
@@ -269,17 +286,22 @@ export function Studio() {
               onCommit={onCommitImage}
               initial={
                 reBisecting && image
-                  ? { dataUrl: image.dataUrl, palette: image.palette, cuts: image.cuts }
+                  ? { dataUrl: image.dataUrl, palette: image.palette, cuts: image.cuts, aspect: image.aspect }
                   : null
               }
             />
           ) : (
-            <div style={{ position: 'relative', width: size, height: size }}>
-              <div style={{ boxShadow: '0 24px 80px rgba(0,0,0,0.32)' }}>
-                <CompositionSvg composition={composition} grid={grid} size={size} aspect={1} />
-              </div>
-              <SkeletonReveal grid={grid} size={size} aspect={1} show={revealOn} ink={inkHex} />
-            </div>
+            (() => {
+              const { w, h } = fitBox(size, grid.aspect)
+              return (
+                <div style={{ position: 'relative', width: w, height: h }}>
+                  <div style={{ boxShadow: '0 24px 80px rgba(0,0,0,0.32)' }}>
+                    <CompositionSvg composition={composition} grid={grid} size={size} aspect={grid.aspect} />
+                  </div>
+                  <SkeletonReveal grid={grid} size={size} aspect={grid.aspect} show={revealOn} ink={inkHex} />
+                </div>
+              )
+            })()
           )
         }
       </Stage>

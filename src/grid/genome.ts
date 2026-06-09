@@ -48,12 +48,19 @@ const VOICES: Record<string, number[]> = {
   halves: [0.5],
   thirds: [1 / 3, 2 / 3],
   quarters: [0.25, 0.5, 0.75],
+  sixths: [1 / 6, 1 / 3, 2 / 3, 5 / 6],
   golden: [0.382, 0.618],
   fifths: [0.2, 0.4, 0.6, 0.8],
+  eighths: [0.125, 0.375, 0.625, 0.875],
   root5: [0.236, 0.764],
+  sqrt2: [1 - 1 / Math.SQRT2, 1 / Math.SQRT2],
 }
-const CALM_VOICES: number[][] = [VOICES.halves, VOICES.thirds, VOICES.quarters]
-const DYNAMIC_VOICES: number[][] = [VOICES.golden, VOICES.fifths, VOICES.root5]
+const CALM_VOICES: number[][] = [VOICES.halves, VOICES.thirds, VOICES.quarters, VOICES.sixths]
+const DYNAMIC_VOICES: number[][] = [VOICES.golden, VOICES.fifths, VOICES.root5, VOICES.eighths, VOICES.sqrt2]
+
+// overall canvas aspect ratios (w/h) the engine can pick for a composition; 1 stays the common case.
+const CANVAS_ASPECTS = [4 / 5, 5 / 4, 3 / 4, 4 / 3, 2 / 3, 3 / 2]
+const sampleAspect = (rng: Rng): number => (rng() < 0.58 ? 1 : pick(rng, CANVAS_ASPECTS))
 
 export interface GridGenome {
   targetLeaves: number // desired module count — the universal complexity knob
@@ -70,6 +77,7 @@ export interface GridGenome {
   regularity: number // 0..1 — P(the grid is a stamped aligned lattice) + shared-ratio pressure
   marginFrac: number // 0..0.08 — outer poster margin (render-time inset; area preserved)
   gutterFrac: number // 0..0.03 — inter-cell gutter (render-time inset; area preserved)
+  aspect: number // overall canvas aspect (w/h): 1 = square, else portrait/landscape
 }
 
 // ---- sampling ----
@@ -115,6 +123,7 @@ export function sampleGenome(rng: Rng, dials: Dials = DEFAULT_DIALS): GridGenome
     regularity: clamp((rng() < 0.35 ? lerp(0.55, 1, rng()) : lerp(0, 0.55, rng())) + (rh - 0.5) * 0.7, 0, 1),
     marginFrac: rng() < 0.4 ? lerp(0.02, 0.08, rng()) : 0,
     gutterFrac: rng() < lerp(0.15, 0.7, rh) ? lerp(0.004, 0.03, rng()) : 0,
+    aspect: sampleAspect(rng),
   }
 }
 
@@ -154,6 +163,7 @@ export function mutateGenome(g: GridGenome, rng: Rng, amt = 1): GridGenome {
     }
   }
   if (!next.voice.includes(next.primaryRatio)) next.primaryRatio = next.voice[0]
+  if (rng() < 0.12) next.aspect = sampleAspect(rng) // occasionally explore a different canvas shape
   return next
 }
 
@@ -220,11 +230,14 @@ function pickFractions(rng: Rng, g: GridGenome, k: number, uniform: boolean): nu
 }
 
 /** Choose the split axis for a cell from the genome's axis character, falling back to whichever axis
- * has room. Returns null if the cell can't be split at all. */
-function chooseAxis(rng: Rng, c: Cell, g: GridGenome): Axis | null {
+ * has room. The "longer side" is measured in RENDERED space (× canvas aspect), and on a non-square
+ * canvas the squaring-up coupling is strengthened, so stretched cells don't become slivers. Returns
+ * null if the cell can't be split at all. */
+function chooseAxis(rng: Rng, c: Cell, g: GridGenome, aspect: number): Axis | null {
   let vertical = rng() < g.axisBias
   if (c.axis && rng() < g.alternation) vertical = c.axis !== 'v' // flip relative to parent
-  if (rng() < g.axisCoupling) vertical = c.x1 - c.x0 > c.y1 - c.y0 // cut the longer side
+  const coupling = aspect === 1 ? g.axisCoupling : Math.max(g.axisCoupling, 0.6)
+  if (rng() < coupling) vertical = (c.x1 - c.x0) * aspect > c.y1 - c.y0 // cut the longer RENDERED side
   let axis: Axis = vertical ? 'v' : 'h'
   if (!splittable(c, axis)) axis = axis === 'v' ? 'h' : 'v'
   return splittable(c, axis) ? axis : null
@@ -240,10 +253,12 @@ function pickArity(rng: Rng, c: Cell, g: GridGenome, axis: Axis): number {
 /** Lay a stamped, aligned C×R lattice into `leaves` (replacing the single root). Columns are cut once;
  * every column is then cut at the SAME row fractions, so rows align and the shared edges are
  * bit-identical. Returns when `leaves` holds the C×R cells. */
-function layLattice(root: Cell, g: GridGenome, rng: Rng, count: number): { leaves: Cell[]; cuts: CutRef[] } {
-  let C = clamp(Math.round(Math.sqrt(count)), 2, 6)
+function layLattice(root: Cell, g: GridGenome, rng: Rng, count: number, aspect: number): { leaves: Cell[]; cuts: CutRef[] } {
+  // bias columns by the canvas aspect so a wide canvas gets more columns (and rendered cells stay
+  // roughly square); only a true square shuffles C/R freely.
+  let C = clamp(Math.round(Math.sqrt(count * aspect)), 2, 6)
   let R = clamp(Math.round(count / C), 2, 6)
-  if (rng() < 0.5) [C, R] = [R, C] // portrait/landscape variety
+  if (aspect === 1 && rng() < 0.5) [C, R] = [R, C] // portrait/landscape variety
   const uniform = rng() < g.bandUniformity
 
   const colFracs = uniform ? Array.from({ length: C - 1 }, (_, i) => (i + 1) / C) : voiceSplits(rng, g, C - 1)
@@ -262,7 +277,7 @@ function layLattice(root: Cell, g: GridGenome, rng: Rng, count: number): { leave
 
 /** Grow `leaves` by frontier expansion until it reaches `target` (or no cell can be split). Each step
  * picks a leaf weighted by area^recurseExponent and depth, splits it into a binary or n-ary band. */
-function growFrontier(leaves: Cell[], cuts: CutRef[], g: GridGenome, rng: Rng, target: number): void {
+function growFrontier(leaves: Cell[], cuts: CutRef[], g: GridGenome, rng: Rng, target: number, aspect: number): void {
   let guard = 0
   while (leaves.length < target && guard++ < 400) {
     const idxs = leaves.map((_, i) => i).filter((i) => canSplit(leaves[i]))
@@ -286,7 +301,7 @@ function growFrontier(leaves: Cell[], cuts: CutRef[], g: GridGenome, rng: Rng, t
       }
     }
     const cell = leaves[pickIdx]
-    const axis = chooseAxis(rng, cell, g)
+    const axis = chooseAxis(rng, cell, g, aspect)
     if (!axis) continue
     const span = axis === 'v' ? cell.x1 - cell.x0 : cell.y1 - cell.y0
     const k = pickArity(rng, cell, g, axis)
@@ -369,12 +384,12 @@ export function genomeToGrid(g: GridGenome, seed: number, rng: Rng): Grid {
   if (lattice) {
     const broken = rng() < 1 - g.regularity
     const baseCount = broken ? Math.max(4, Math.round(g.targetLeaves * 0.6)) : g.targetLeaves
-    const laid = layLattice(root, g, rng, baseCount)
+    const laid = layLattice(root, g, rng, baseCount, g.aspect)
     leaves = laid.leaves
     cuts = laid.cuts
-    if (broken) growFrontier(leaves, cuts, g, rng, g.targetLeaves)
+    if (broken) growFrontier(leaves, cuts, g, rng, g.targetLeaves, g.aspect)
   } else {
-    growFrontier(leaves, cuts, g, rng, g.targetLeaves)
+    growFrontier(leaves, cuts, g, rng, g.targetLeaves, g.aspect)
   }
 
   const uniq = uniqueCuts(cuts)
@@ -387,7 +402,7 @@ export function genomeToGrid(g: GridGenome, seed: number, rng: Rng): Grid {
     seed,
     generator: 'recursive', // sentinel for type compat; the real character lives in meta.genome
     params: { kind: 'recursive', targetModules: modules.length, splitRatios: g.voice, vBias: g.axisBias },
-    aspect: 1,
+    aspect: g.aspect,
     guides,
     modules,
     ratios,
