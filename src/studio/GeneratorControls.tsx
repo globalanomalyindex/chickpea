@@ -1,8 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import type { Grid, GeneratorKind } from '../grid/types'
-import type { StudioMode } from './Studio'
-import { GENERATOR_KINDS } from '../grid/generators'
+import type { Grid } from '../grid/types'
+import type { StudioMode, InkMode } from './Studio'
 import type { PaletteColor } from '../palette/generate'
 
 const CREAM = '#f4f0e8'
@@ -11,32 +10,28 @@ const HAIR = 'rgba(244,240,232,0.22)'
 
 interface Props {
   mode: StudioMode
-  generator: GeneratorKind
+  /** the three expressive dials (0..1) — bias the engine's distribution; the seed re-rolls within it */
+  complexity: number
+  tension: number
+  rhythm: number
   seed: number
-  /** per-family structural params (driven by the shape sliders) */
-  targetModules: number
-  columns: number
-  rows: number
-  depth: number
   /** how many colors in the generated palette, and the live palette itself (for the swatch preview) */
   colorCount: number
   palette: PaletteColor[]
   grid: Grid
   revealOn: boolean
+  ink: InkMode
+  annotate: boolean
   textOn: boolean
   canUndo: boolean
   canRedo: boolean
-  /** image mode, cuts committed → showing the anchored composition. */
   imageCommitted: boolean
-  /** image mode, at the upload/cut step. */
   bisecting: boolean
   onMode: (m: StudioMode) => void
-  onGenerator: (k: GeneratorKind) => void
+  onComplexity: (v: number) => void
+  onTension: (v: number) => void
+  onRhythm: (v: number) => void
   onSeed: (s: number) => void
-  onTargetModules: (v: number) => void
-  onColumns: (v: number) => void
-  onRows: (v: number) => void
-  onDepth: (v: number) => void
   onColorCount: (n: number) => void
   onGenerate: () => void
   onIterate: () => void
@@ -44,17 +39,16 @@ interface Props {
   onRedo: () => void
   onReBisect: () => void
   onToggleReveal: () => void
+  onInk: (m: InkMode) => void
+  onToggleAnnotate: () => void
   onToggleText: () => void
   onExportPng: () => void
   onExportSvg: () => void
+  onExportReveal: () => void
   busy?: boolean
 }
 
-const KIND_LABEL: Record<GeneratorKind, string> = {
-  recursive: 'recursive',
-  modular: 'modular',
-  nature: 'nature',
-}
+const pct = (v: number): string => `${Math.round(v * 100)}`
 
 export function GeneratorControls(p: Props) {
   return (
@@ -102,29 +96,10 @@ export function GeneratorControls(p: Props) {
       </Section>
 
       {p.mode === 'scratch' && (
-        <Section label="family">
-          <Segmented
-            options={GENERATOR_KINDS.map((k) => ({ value: k, label: KIND_LABEL[k] }))}
-            value={p.generator}
-            onChange={(v) => p.onGenerator(v as GeneratorKind)}
-          />
-        </Section>
-      )}
-
-      {p.mode === 'scratch' && (
-        <Section label="shape">
-          {p.generator === 'recursive' && (
-            <Slider label="cells" value={p.targetModules} min={2} max={24} onChange={p.onTargetModules} />
-          )}
-          {p.generator === 'modular' && (
-            <>
-              <Slider label="columns" value={p.columns} min={2} max={12} onChange={p.onColumns} />
-              <Slider label="rows" value={p.rows} min={2} max={10} onChange={p.onRows} />
-            </>
-          )}
-          {p.generator === 'nature' && (
-            <Slider label="depth" value={p.depth} min={1} max={10} onChange={p.onDepth} />
-          )}
+        <Section label="form">
+          <Slider label="complexity" value={p.complexity} min={0} max={1} step={0.01} fmt={pct} onChange={p.onComplexity} />
+          <Slider label="tension" value={p.tension} min={0} max={1} step={0.01} fmt={pct} onChange={p.onTension} />
+          <Slider label="rhythm" value={p.rhythm} min={0} max={1} step={0.01} fmt={pct} onChange={p.onRhythm} />
         </Section>
       )}
 
@@ -141,15 +116,7 @@ export function GeneratorControls(p: Props) {
 
       {p.imageCommitted && (
         <Section label="bisection">
-          <div
-            style={{
-              fontFamily: 'var(--font-mono)',
-              fontSize: 11.5,
-              lineHeight: 1.5,
-              opacity: 0.7,
-              marginBottom: 10,
-            }}
-          >
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, lineHeight: 1.5, opacity: 0.7, marginBottom: 10 }}>
             cuts are anchored to ratio positions; Generate re-seeds the math around them.
           </div>
           <ActionButton label="↶ re-bisect" hint="upload / re-cut" onClick={p.onReBisect} />
@@ -170,8 +137,19 @@ export function GeneratorControls(p: Props) {
             </div>
           </Section>
 
-          <Section label="overlay">
-            <Toggle label="Reveal math" on={p.revealOn} onClick={p.onToggleReveal} />
+          <Section label="reveal math">
+            <Toggle label="Show overlay" on={p.revealOn} onClick={p.onToggleReveal} />
+            <Toggle label="Annotations" on={p.annotate} onClick={p.onToggleAnnotate} />
+            <div style={{ marginTop: 10 }}>
+              <Segmented
+                options={[
+                  { value: 'light', label: 'light ink' },
+                  { value: 'dark', label: 'dark ink' },
+                ]}
+                value={p.ink}
+                onChange={(v) => p.onInk(v as InkMode)}
+              />
+            </div>
             <Toggle label="Type" on={p.textOn} onClick={p.onToggleText} />
           </Section>
 
@@ -184,9 +162,10 @@ export function GeneratorControls(p: Props) {
           </Section>
 
           <Section label="export">
-            <div style={{ display: 'flex', gap: 8 }}>
-              <ActionButton label="PNG" onClick={p.onExportPng} disabled={p.busy} grow />
-              <ActionButton label="SVG" onClick={p.onExportSvg} disabled={p.busy} grow />
+            <ActionButton label="Reveal PNG (alpha)" hint="grid skeleton, transparent" onClick={p.onExportReveal} disabled={p.busy} />
+            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+              <ActionButton label="PNG" hint="composition" onClick={p.onExportPng} disabled={p.busy} grow />
+              <ActionButton label="SVG" hint="composition" onClick={p.onExportSvg} disabled={p.busy} grow />
             </div>
           </Section>
         </>
@@ -194,14 +173,7 @@ export function GeneratorControls(p: Props) {
 
       {p.bisecting && (
         <Section label="bisect">
-          <div
-            style={{
-              fontFamily: 'var(--font-mono)',
-              fontSize: 11.5,
-              lineHeight: 1.55,
-              opacity: 0.7,
-            }}
-          >
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, lineHeight: 1.55, opacity: 0.7 }}>
             upload an image, then enter it from an edge to arm a cut: top/bottom → vertical,
             left/right → horizontal. click to drop. commit the cuts to generate variations.
           </div>
@@ -237,14 +209,15 @@ function Section({ label, children }: { label: string; children: React.ReactNode
   )
 }
 
-/** A labeled range slider in the dark-rail vocabulary (mono caps, steel accent + value). Live —
- * drags update the composition continuously; the Studio coalesces a whole drag into one undo step. */
+/** A labeled range slider in the dark-rail vocabulary. Live — drags update continuously; the Studio
+ * coalesces a whole drag into one undo step. `fmt` formats the readout (e.g. a 0..1 dial as a %). */
 function Slider({
   label,
   value,
   min,
   max,
   step = 1,
+  fmt,
   onChange,
 }: {
   label: string
@@ -252,6 +225,7 @@ function Slider({
   min: number
   max: number
   step?: number
+  fmt?: (v: number) => string
   onChange: (v: number) => void
 }) {
   return (
@@ -279,7 +253,9 @@ function Slider({
         onChange={(e) => onChange(Number(e.target.value))}
         style={{ flex: 1, accentColor: STEEL, cursor: 'pointer' }}
       />
-      <span style={{ minWidth: '2.2em', textAlign: 'right', color: STEEL, letterSpacing: '0.04em' }}>{value}</span>
+      <span style={{ minWidth: '2.2em', textAlign: 'right', color: STEEL, letterSpacing: '0.04em' }}>
+        {fmt ? fmt(value) : value}
+      </span>
     </label>
   )
 }
@@ -290,11 +266,7 @@ function Swatches({ palette }: { palette: PaletteColor[] }) {
   return (
     <div style={{ display: 'flex', gap: 3, height: 32 }}>
       {palette.map((c, i) => (
-        <div
-          key={i}
-          title={c.hex}
-          style={{ flex: i === 0 ? 1.7 : 1, background: c.hex, borderRadius: 2 }}
-        />
+        <div key={i} title={c.hex} style={{ flex: i === 0 ? 1.7 : 1, background: c.hex, borderRadius: 2 }} />
       ))}
     </div>
   )
@@ -310,14 +282,7 @@ function Segmented({
   onChange: (v: string) => void
 }) {
   return (
-    <div
-      role="radiogroup"
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        border: `1px solid ${HAIR}`,
-      }}
-    >
+    <div role="radiogroup" style={{ display: 'flex', flexDirection: 'column', border: `1px solid ${HAIR}` }}>
       {options.map((o, i) => {
         const active = o.value === value
         return (
@@ -407,6 +372,7 @@ function ActionButton({
       title={hint}
       style={{
         flex: grow ? 1 : undefined,
+        width: grow ? undefined : '100%',
         appearance: 'none',
         background: primary ? CREAM : 'transparent',
         color: primary ? '#2a2e31' : CREAM,

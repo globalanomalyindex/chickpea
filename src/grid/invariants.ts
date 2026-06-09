@@ -1,4 +1,4 @@
-import type { Module } from './types'
+import type { Grid, Module } from './types'
 
 export function checkBounds(modules: Module[], eps = 1e-9): boolean {
   return modules.every(
@@ -35,4 +35,19 @@ export function checkTiling(
     area,
     overlap,
   }
+}
+
+/**
+ * Every guide must lie EXACTLY on a real module edge (bit-identical, not epsilon-near). Because the
+ * slice-tree shares each cut coordinate verbatim between neighbours (tree.ts), the cell on the far
+ * side of a cut has its low edge `=== guide.pos`. If this fails while `checkTiling` passes, the
+ * signature is an (x, w) regression — someone recomputed a guide position instead of reusing the
+ * shared edge — which would show as a hairline that misses its modules in the Reveal overlay/export.
+ */
+export function checkCrispGuides(grid: Grid): boolean {
+  for (const g of grid.guides) {
+    const onEdge = grid.modules.some((m) => (g.axis === 'v' ? m.x === g.pos : m.y === g.pos))
+    if (!onEdge) return false
+  }
+  return true
 }

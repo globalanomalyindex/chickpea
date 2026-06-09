@@ -143,7 +143,7 @@ export function buildAnchoredGrid(cuts: Cut[], seed: number): Grid {
  * "φ 0.618" would not be (φ ≈ 1.618). Symmetric points get the complementary fraction so
  * the label and number always agree.
  */
-function ratioName(pos: number): string {
+export function ratioName(pos: number): string {
   if (near(pos, 0.5)) return '½'
   if (near(pos, 1 / 3)) return '⅓'
   if (near(pos, 2 / 3)) return '⅔'

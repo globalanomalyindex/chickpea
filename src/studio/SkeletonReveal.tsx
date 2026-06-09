@@ -8,10 +8,13 @@ interface Props {
   size?: number
   aspect?: number
   show: boolean
+  /** measure-ink colour (cream by default; the studio's light/dark toggle flips it). */
+  ink?: string
 }
 
-const INK = '#f4f0e8'
-/** measure-ink language: cream hairlines, mono labels, faint halo for legibility over color. */
+const CREAM = '#f4f0e8'
+const CHARCOAL = '#2a2e31'
+/** measure-ink language: hairlines, mono labels, faint counter-tone halo for legibility over color. */
 const GUIDE_W = 0.0015
 const OUTLINE_W = 0.001
 
@@ -20,16 +23,18 @@ function largestModule(grid: Grid): Module {
 }
 
 /**
- * The studio echo of the hero's Measure layer: overlays the composition's math —
- * guides, module outlines, hover dims, ratio labels — in the cream dimension-arrow
- * vocabulary. Reuses DimensionArrow for the dominant module's measured width.
+ * The studio echo of the hero's Measure layer: overlays the composition's math — guides, module
+ * outlines, hover dims, ratio labels — in the cream/charcoal dimension-arrow vocabulary. The ink
+ * toggle flips it so it reads over light OR dark fills (and matches the chosen export ink).
  */
-export function SkeletonReveal({ grid, size = 640, aspect, show }: Props) {
+export function SkeletonReveal({ grid, size = 640, aspect, show, ink = CREAM }: Props) {
   const a = aspect ?? grid.aspect ?? 1
   const w = a >= 1 ? size : size * a
   const h = a >= 1 ? size / a : size
   const [hover, setHover] = useState<number | null>(null)
 
+  const halo = ink.toLowerCase() === CHARCOAL ? CREAM : CHARCOAL
+  const shadow = `0 0 3px ${halo}`
   const dom = largestModule(grid)
   const domWidthPx = dom.w * w
 
@@ -50,10 +55,10 @@ export function SkeletonReveal({ grid, size = 640, aspect, show }: Props) {
             preserveAspectRatio="none"
             style={{ position: 'absolute', inset: 0, display: 'block', overflow: 'visible' }}
           >
-            {/* soft halo so the ink reads over light modules too */}
+            {/* soft halo so the ink reads over modules of either tone */}
             <defs>
               <filter id="halo" x="-20%" y="-20%" width="140%" height="140%">
-                <feDropShadow dx="0" dy="0" stdDeviation="0.004" floodColor="#2a2e31" floodOpacity="0.5" />
+                <feDropShadow dx="0" dy="0" stdDeviation="0.004" floodColor={halo} floodOpacity="0.5" />
               </filter>
             </defs>
 
@@ -67,7 +72,7 @@ export function SkeletonReveal({ grid, size = 640, aspect, show }: Props) {
                   width={m.w}
                   height={m.h}
                   fill="transparent"
-                  stroke={INK}
+                  stroke={ink}
                   strokeOpacity={hover === i ? 0.95 : 0.5}
                   strokeWidth={hover === i ? OUTLINE_W * 1.8 : OUTLINE_W}
                   pointerEvents="all"
@@ -80,9 +85,9 @@ export function SkeletonReveal({ grid, size = 640, aspect, show }: Props) {
               {/* guide hairlines */}
               {grid.guides.map((g, i) =>
                 g.axis === 'v' ? (
-                  <line key={i} x1={g.pos} y1={0} x2={g.pos} y2={1} stroke={INK} strokeOpacity={0.6} strokeWidth={GUIDE_W} />
+                  <line key={i} x1={g.pos} y1={0} x2={g.pos} y2={1} stroke={ink} strokeOpacity={0.6} strokeWidth={GUIDE_W} />
                 ) : (
-                  <line key={i} x1={0} y1={g.pos} x2={1} y2={g.pos} stroke={INK} strokeOpacity={0.6} strokeWidth={GUIDE_W} />
+                  <line key={i} x1={0} y1={g.pos} x2={1} y2={g.pos} stroke={ink} strokeOpacity={0.6} strokeWidth={GUIDE_W} />
                 ),
               )}
             </g>
@@ -97,9 +102,9 @@ export function SkeletonReveal({ grid, size = 640, aspect, show }: Props) {
                 top: grid.modules[hover].y * h + 3,
                 fontFamily: 'var(--font-mono)',
                 fontSize: 11,
-                color: INK,
+                color: ink,
                 whiteSpace: 'nowrap',
-                textShadow: '0 0 3px rgba(42,46,49,0.7)',
+                textShadow: shadow,
                 pointerEvents: 'none',
               }}
             >
@@ -113,14 +118,15 @@ export function SkeletonReveal({ grid, size = 640, aspect, show }: Props) {
               position: 'absolute',
               left: dom.x * w,
               top: (dom.y + dom.h) * h + 8,
-              filter: 'drop-shadow(0 0 3px rgba(42,46,49,0.7))',
+              filter: `drop-shadow(${shadow})`,
               pointerEvents: 'none',
             }}
           >
-            <DimensionArrow orientation="h" length={domWidthPx} label={`${Math.round(domWidthPx)}px`} color={INK} />
+            <DimensionArrow orientation="h" length={domWidthPx} label={`${Math.round(domWidthPx)}px`} color={ink} />
           </div>
 
-          {/* ratio labels in mono, stacked at the top-left */}
+          {/* ratio labels in mono, stacked at the top-left, on a subtle counter-tone chip so they
+              read cleanly even when a module's own text sits in the same corner */}
           <div
             style={{
               position: 'absolute',
@@ -129,10 +135,13 @@ export function SkeletonReveal({ grid, size = 640, aspect, show }: Props) {
               display: 'flex',
               flexDirection: 'column',
               gap: 2,
+              padding: '5px 8px',
+              background: `${halo}59`,
+              borderRadius: 3,
               fontFamily: 'var(--font-mono)',
               fontSize: 11,
-              color: INK,
-              textShadow: '0 0 3px rgba(42,46,49,0.7)',
+              color: ink,
+              textShadow: shadow,
               pointerEvents: 'none',
             }}
           >

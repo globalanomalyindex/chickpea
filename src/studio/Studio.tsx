@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import type { GeneratorKind } from '../grid/types'
-import { generateRecursive, defaultRecursiveParams } from '../grid/generators/recursive'
-import { generateModular } from '../grid/generators/modular'
-import { generateNature, defaultNatureParams } from '../grid/generators/nature'
+import { generateGrid } from '../grid/engine'
 import { buildAnchoredGrid, type Cut } from '../grid/anchor'
 import { encodeDescriptor, decodeDescriptor } from '../grid/serialize'
 import { generatePalette } from '../palette/generate'
@@ -16,6 +13,7 @@ import { GeneratorControls } from './GeneratorControls'
 import { ImageBisection } from './ImageBisection'
 import { compositionToSvg, loadMafinestDataUrl } from '../io/export-svg'
 import { compositionToPngBlob, ensureExportFontReady } from '../io/export-png'
+import { gridSkeletonToPngBlob, LIGHT_INK, DARK_INK } from '../io/export-skeleton-png'
 import { exportFilename } from '../io/filename'
 import { downloadBlob, downloadText } from '../io/download'
 import { CornerNav } from '../app/CornerNav'
@@ -25,6 +23,7 @@ const SLATE = '#5d646b'
 const EXPORT_PX = 1600
 
 export type StudioMode = 'scratch' | 'image'
+export type InkMode = 'light' | 'dark'
 interface ImageState {
   cuts: Cut[]
   palette: ColorWeight[]
@@ -35,24 +34,18 @@ function randomSeed(): number {
   return Math.floor(Math.random() * 1_000_000)
 }
 
-/** Swiss modular margin/gutter (fractions of the square) — matches the case-study figure. */
-const MODULAR_MARGIN = 0.06
-const MODULAR_GUTTER = 0.022
-
-/** The full generative state — one object so history (undo/redo) is a stack of snapshots. The
- * sliders below drive the per-family structural params; the seed re-rolls variations within them. */
+/** The full generative state — one object so history (undo/redo) is a stack of snapshots. The three
+ * dials drive the procedural engine's distribution; the seed re-rolls variations within them. */
 export interface Doc {
-  generator: GeneratorKind
+  complexity: number // 0..1 — sparse → intricate
+  tension: number // 0..1 — calm/centered → dynamic/focal
+  rhythm: number // 0..1 — organic/free → periodic/lattice
   seed: number
-  targetModules: number // recursive
-  columns: number // modular
-  rows: number // modular
-  depth: number // nature
   colorCount: number // how many colors in the generated palette
 }
 
-function defaultDoc(generator: GeneratorKind, seed: number, colorCount: number): Doc {
-  return { generator, seed, targetModules: 9, columns: 6, rows: 4, depth: 6, colorCount }
+function defaultDoc(complexity: number, tension: number, rhythm: number, seed: number, colorCount: number): Doc {
+  return { complexity, tension, rhythm, seed, colorCount }
 }
 
 interface History {
@@ -69,25 +62,22 @@ export function Studio() {
   const [mode, setMode] = useState<StudioMode>('scratch')
   const [image, setImage] = useState<ImageState | null>(null)
   // true while the user is back in the bisection step adjusting an already-committed image.
-  // we keep `image` populated so its dataUrl/palette/cuts survive and seed the ImageBisection.
   const [reBisecting, setReBisecting] = useState(false)
 
   // generative state + undo/redo history (a single snapshot stack)
   const [hist, setHist] = useState<History>(() => ({
-    doc: defaultDoc(initial.kind, initial.seed, initial.count),
+    doc: defaultDoc(initial.complexity, initial.tension, initial.rhythm, initial.seed, initial.count),
     past: [],
     future: [],
   }))
   const doc = hist.doc
-  const { generator, seed, targetModules, columns, rows, depth, colorCount } = doc
+  const { complexity, tension, rhythm, seed, colorCount } = doc
   // coalesce rapid same-field edits (slider drags, repeated taps) into ONE undo step
   const coalesceKey = useRef<string | null>(null)
   const coalesceAt = useRef(0)
 
-  // `key` names the field being edited so a run of same-field edits (a slider drag, repeated taps)
-  // collapses to ONE undo step. The coalesce decision happens HERE (before setHist) so the setHist
-  // updater stays pure — React StrictMode double-invokes updaters, which would otherwise run the
-  // ref side-effects twice and silently drop the history push.
+  // The coalesce decision happens HERE (before setHist) so the setHist updater stays pure — React
+  // StrictMode double-invokes updaters, which would otherwise run the ref side-effects twice.
   const commit = useCallback((p: Partial<Doc> | ((d: Doc) => Partial<Doc>), key?: keyof Doc) => {
     const now = performance.now()
     const sameField = key != null && coalesceKey.current === key && now - coalesceAt.current < 600
@@ -113,30 +103,29 @@ export function Studio() {
   const canRedo = hist.future.length > 0
 
   const [revealOn, setRevealOn] = useState(false)
+  const [ink, setInk] = useState<InkMode>('light')
+  const [annotate, setAnnotate] = useState(true)
   const [textOn, setTextOn] = useState(true)
   const [busy, setBusy] = useState(false)
+  const inkHex = ink === 'dark' ? DARK_INK : LIGHT_INK
 
-  // are we sitting in the bisection step? image mode, with either nothing committed yet or
-  // the user explicitly back in to re-bisect an already-committed image.
+  // are we sitting in the bisection step?
   const bisecting = mode === 'image' && (image === null || reBisecting)
 
-  // keep (generator, seed) in the URL query so any state is shareable
+  // keep (dials, seed, count) in the URL query so any state is shareable
   useEffect(() => {
     const next = new URLSearchParams(params)
-    encodeDescriptor({ kind: generator, seed, count: colorCount }, next)
+    encodeDescriptor({ complexity, tension, rhythm, seed, count: colorCount }, next)
     if (next.toString() !== params.toString()) setParams(next, { replace: true })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [generator, seed, colorCount])
+  }, [complexity, tension, rhythm, seed, colorCount])
 
-  // In image mode the grid is the anchored grid (cuts fixed, math seed-varied); in scratch
-  // mode it is the chosen generator. Either way Generate/Iterate re-seed the variations.
+  // In image mode the grid is the anchored grid (cuts fixed, math seed-varied); in scratch mode it is
+  // the procedural engine driven by (seed, dials). Either way Generate/Iterate re-seed the variations.
   const grid = useMemo(() => {
     if (mode === 'image' && image) return buildAnchoredGrid(image.cuts, seed)
-    if (generator === 'recursive') return generateRecursive(seed, { ...defaultRecursiveParams, targetModules })
-    if (generator === 'modular')
-      return generateModular(seed, { kind: 'modular', columns, rows, margin: MODULAR_MARGIN, gutter: MODULAR_GUTTER })
-    return generateNature(seed, { ...defaultNatureParams, depth })
-  }, [mode, image, generator, seed, targetModules, columns, rows, depth])
+    return generateGrid(seed, { complexity, tension, rhythm })
+  }, [mode, image, seed, complexity, tension, rhythm])
 
   const palette = useMemo(() => {
     if (mode === 'image' && image && image.palette.length > 0) return imagePaletteToPalette(image.palette)
@@ -151,8 +140,7 @@ export function Studio() {
   const onGenerate = useCallback(() => commit({ seed: randomSeed() }, 'seed'), [commit])
   const onIterate = useCallback(() => commit((d) => ({ seed: d.seed + 1 }), 'seed'), [commit])
 
-  // Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z or Ctrl+Y redo. Skip while typing in a field (let the
-  // browser do native text undo there).
+  // Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z or Ctrl+Y redo. Skip while typing in a field.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null
@@ -182,19 +170,18 @@ export function Studio() {
   const onCommitImage = useCallback(
     (cuts: Cut[], pal: ColorWeight[], dataUrl: string) => {
       setImage({ cuts, palette: pal, dataUrl })
-      setReBisecting(false) // leaving the bisection step → show the anchored composition
-      commit({ seed: randomSeed() }) // first seeded variation of the committed cuts
+      setReBisecting(false)
+      commit({ seed: randomSeed() })
     },
     [commit],
   )
 
-  // return to the bisection step, keeping the committed image/cuts so they seed ImageBisection
   const onReBisect = useCallback(() => setReBisecting(true), [])
 
   const exportPng = useCallback(async () => {
     setBusy(true)
     try {
-      await ensureExportFontReady() // load Mafinest so canvas measure/draw doesn't fall back to Georgia
+      await ensureExportFontReady()
       const blob = await compositionToPngBlob(composition, grid, { width: EXPORT_PX, height: EXPORT_PX, scale: 2 })
       downloadBlob(blob, exportFilename('png'))
     } finally {
@@ -205,7 +192,7 @@ export function Studio() {
   const exportSvg = useCallback(async () => {
     setBusy(true)
     try {
-      await ensureExportFontReady() // load Mafinest so the synchronous measure (measureLine) doesn't fall back to Georgia
+      await ensureExportFontReady()
       const fontDataUrl = await loadMafinestDataUrl().catch(() => undefined)
       const svg = compositionToSvg(composition, grid, {
         width: EXPORT_PX,
@@ -219,29 +206,36 @@ export function Studio() {
     }
   }, [composition, grid, revealOn])
 
+  // "Reveal math" export: the grid skeleton as a TRUE PNG with alpha (transparent), lines always,
+  // annotations optional, in the current ink. The headline new feature.
+  const exportRevealPng = useCallback(async () => {
+    setBusy(true)
+    try {
+      const blob = await gridSkeletonToPngBlob(grid, { width: EXPORT_PX, height: EXPORT_PX, ink: inkHex, annotate, scale: 2 })
+      downloadBlob(blob, exportFilename('png'))
+    } finally {
+      setBusy(false)
+    }
+  }, [grid, inkHex, annotate])
+
   return (
     <main
       className="studio-shell"
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: SLATE,
-        fontFamily: 'var(--font-mono)',
-      }}
+      style={{ position: 'fixed', inset: 0, background: SLATE, fontFamily: 'var(--font-mono)' }}
     >
       <CornerNav />
       <GeneratorControls
         mode={mode}
-        generator={generator}
+        complexity={complexity}
+        tension={tension}
+        rhythm={rhythm}
         seed={seed}
-        targetModules={targetModules}
-        columns={columns}
-        rows={rows}
-        depth={depth}
         colorCount={colorCount}
         palette={palette}
         grid={grid}
         revealOn={revealOn}
+        ink={ink}
+        annotate={annotate}
         textOn={textOn}
         busy={busy}
         canUndo={canUndo}
@@ -249,12 +243,10 @@ export function Studio() {
         imageCommitted={mode === 'image' && image !== null && !bisecting}
         bisecting={bisecting}
         onMode={onMode}
-        onGenerator={(k) => commit({ generator: k }, 'generator')}
+        onComplexity={(v) => commit({ complexity: v }, 'complexity')}
+        onTension={(v) => commit({ tension: v }, 'tension')}
+        onRhythm={(v) => commit({ rhythm: v }, 'rhythm')}
         onSeed={(s) => commit({ seed: s }, 'seed')}
-        onTargetModules={(v) => commit({ targetModules: v }, 'targetModules')}
-        onColumns={(v) => commit({ columns: v }, 'columns')}
-        onRows={(v) => commit({ rows: v }, 'rows')}
-        onDepth={(v) => commit({ depth: v }, 'depth')}
         onColorCount={(n) => commit({ colorCount: n }, 'colorCount')}
         onGenerate={onGenerate}
         onIterate={onIterate}
@@ -262,9 +254,12 @@ export function Studio() {
         onRedo={redo}
         onReBisect={onReBisect}
         onToggleReveal={() => setRevealOn((v) => !v)}
+        onInk={setInk}
+        onToggleAnnotate={() => setAnnotate((v) => !v)}
         onToggleText={() => setTextOn((v) => !v)}
         onExportPng={exportPng}
         onExportSvg={exportSvg}
+        onExportReveal={exportRevealPng}
       />
 
       <Stage>
@@ -283,7 +278,7 @@ export function Studio() {
               <div style={{ boxShadow: '0 24px 80px rgba(0,0,0,0.32)' }}>
                 <CompositionSvg composition={composition} grid={grid} size={size} aspect={1} />
               </div>
-              <SkeletonReveal grid={grid} size={size} aspect={1} show={revealOn} />
+              <SkeletonReveal grid={grid} size={size} aspect={1} show={revealOn} ink={inkHex} />
             </div>
           )
         }
