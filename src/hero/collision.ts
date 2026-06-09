@@ -192,11 +192,34 @@ export function restOverlapPairs(boxes: SolverBox[]): Set<string> {
   return out
 }
 
+/** Spiral outward from a rect's position to the nearest spot where it clears every obstacle. An
+ * isolated rect always escapes (clear space exists somewhere), so this is the guaranteed-no-overlap
+ * fallback when pairwise relaxation stalls in a local minimum (e.g. a label boxed in by a dense,
+ * mutually-overlapping field of letters). Minimal displacement: nearer radii are tried first. */
+function ringEscape(rect: Rect, obstacles: Rect[]): { x: number; y: number } {
+  if (!crossesAny(rect, obstacles)) return { x: rect.x, y: rect.y }
+  const STEP = 5
+  const MAX_R = 600
+  const SPOKES = 24
+  for (let r = STEP; r <= MAX_R; r += STEP) {
+    for (let s = 0; s < SPOKES; s++) {
+      const ang = (s / SPOKES) * Math.PI * 2
+      const x = rect.x + Math.cos(ang) * r
+      const y = rect.y + Math.sin(ang) * r
+      if (!crossesAny({ x, y, w: rect.w, h: rect.h }, obstacles)) return { x, y }
+    }
+  }
+  return { x: rect.x, y: rect.y }
+}
+
 /**
- * Place labels (numbers) so none overlaps any obstacle (word boxes / arrowheads) OR another label —
- * the "numbers never clash with anything" guarantee. Obstacles are pinned; labels are mobile and
- * relax out of every collision by minimal displacement (a label that already sits clear doesn't
- * move). Returns a {dx,dy} per label id in input order.
+ * Place labels (numbers) so none overlaps any obstacle (word/letter boxes, arrowheads) OR another
+ * label — the "numbers never clash with anything" guarantee. Obstacles are pinned; labels relax out
+ * of every collision by minimal displacement. Pairwise relaxation can stall in a local minimum when
+ * a label is boxed in by a dense, mutually-overlapping field (the 200px title letters), so any label
+ * still overlapping after the relax is given a guaranteed escape via `ringEscape`. Resolved labels
+ * become obstacles for the ones after them, so the fallback never reintroduces a label-label clash.
+ * Returns a {dx,dy} per label id in input order.
  */
 export function layoutLabels(
   labels: SolverBox[],
@@ -208,10 +231,18 @@ export function layoutLabels(
     ...labels.map((l) => ({ id: l.id, x: l.x, y: l.y, w: l.w, h: l.h, pinned: false })),
   ]
   const res = relax(boxes, { pad, passes: Math.max(40, boxes.length * 8) })
+
   const out = new Map<string, { dx: number; dy: number }>()
+  const placed: Rect[] = [] // resolved label rects, become obstacles for later labels
   for (const l of labels) {
     const r = res.get(l.id)!
-    out.set(l.id, { dx: r.x - l.x, dy: r.y - l.y })
+    let pos = { x: r.x, y: r.y }
+    const obs = placed.concat(obstacles)
+    if (crossesAny({ x: pos.x, y: pos.y, w: l.w, h: l.h }, obs)) {
+      pos = ringEscape({ x: pos.x, y: pos.y, w: l.w, h: l.h }, obs)
+    }
+    out.set(l.id, { dx: pos.x - l.x, dy: pos.y - l.y })
+    placed.push({ x: pos.x, y: pos.y, w: l.w, h: l.h })
   }
   return out
 }

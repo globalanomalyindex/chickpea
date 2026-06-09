@@ -249,6 +249,13 @@ export function MorphGrid({
         // by swapping instantly (never animated) when the arrangement changes.
         field.style.transform = 'none'
         field.style.filter = 'none'
+        // Finalize any crossfade caught in flight when reduced-motion turned on — otherwise the two
+        // layers stay frozen at partial opacity until the next version change.
+        if (morphStart >= 0) {
+          morphStart = -1
+          groups[frontIdx].style.opacity = '1'
+          groups[1 - frontIdx].style.opacity = '0'
+        }
         if (compositionVersion.current !== seenVersion) {
           seenVersion = compositionVersion.current
           paintGrid(groups[frontIdx], nextGrid())

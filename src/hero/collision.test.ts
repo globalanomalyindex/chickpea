@@ -273,6 +273,24 @@ describe('layoutLabels', () => {
     expect(rectsOverlap(moved[0], moved[1])).toBe(false)
     for (const m of moved) expect(rectsOverlap(m, obstacles[0])).toBe(false)
   })
+
+  it('escapes a label boxed into a dense, mutually-overlapping field (the title-letter stall)', () => {
+    // mimic the 200px title: a row of big, ~20px-overlapping letter boxes; two numbers seeded
+    // right in the middle must BOTH end clear of every letter and of each other.
+    const letters: Rect[] = []
+    for (let i = 0; i < 8; i++) letters.push({ x: i * 80, y: 0, w: 100, h: 200 })
+    const labels: SolverBox[] = [
+      { id: 'n1', x: 250, y: 95, w: 18, h: 13 }, // buried in the letters
+      { id: 'n2', x: 268, y: 100, w: 18, h: 13 }, // buried + clashing with n1
+    ]
+    const ds = layoutLabels(labels, letters, 2)
+    const moved = labels.map((l) => {
+      const d = ds.get(l.id)!
+      return { x: l.x + d.dx, y: l.y + d.dy, w: l.w, h: l.h }
+    })
+    for (const m of moved) for (const L of letters) expect(rectsOverlap(m, L)).toBe(false)
+    expect(rectsOverlap(moved[0], moved[1])).toBe(false)
+  })
 })
 
 describe('crossesAny', () => {

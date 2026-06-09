@@ -465,24 +465,23 @@ export function InteractionLayer({
           sep.set(id, c)
         }
 
-        // Title: continuous split over ALL nearby letter gaps. Letters left of a gap shift left,
-        // right shift right — weighted by strength. Opens exactly the hovered gap, preserves every
-        // other kerning pair, and never introduces overlap (adjacent letters only ever move apart).
+        // Separation is summed over ALL active measurements, weighted by strength² — NOT a hard
+        // top-N slice. The square concentrates the motion on the nearest measurement (calm, like a
+        // single winner) while making the target a CONTINUOUS function of the cursor: a measurement
+        // entering/leaving relevance contributes ~0 at the boundary, so the relax target never jumps
+        // (the old `sel.slice` cutoff swapped a ~0.4-strength measurement in/out → a 6px stutter).
         const isLetter = (id: string) => placedById.get(id)?.kind === 'letter'
         const titleLetters = placed.filter((b) => b.kind === 'letter')
         for (const m of ms) {
-          if (m.type !== 'gap' || !isLetter(m.aId) || !isLetter(m.bId)) continue
-          const s = cursorRelevance(m, cur, RADIUS).strength
-          if (s <= 0) continue
-          const xc = (m.span.x1 + m.span.x2) / 2
-          for (const L of titleLetters) bump(L.id, (L.x + L.w / 2 < xc ? -1 : 1) * s * DELTA * 0.5, 0)
-        }
-
-        // Words/margins (the selected, non-letter measurements): separate, then relax to cascade.
-        for (const { m, strength } of sel) {
-          if (m.type === 'gap') {
-            if (isLetter(m.aId)) continue // letters handled above
-            const s = (DELTA * strength) / 2
+          const strength = cursorRelevance(m, cur, RADIUS).strength
+          if (strength <= 0) continue
+          const w = strength * strength
+          if (m.type === 'gap' && isLetter(m.aId) && isLetter(m.bId)) {
+            // title: split-and-spread — letters left of the gap shift left, right shift right
+            const xc = (m.span.x1 + m.span.x2) / 2
+            for (const L of titleLetters) bump(L.id, (L.x + L.w / 2 < xc ? -1 : 1) * w * DELTA * 0.5, 0)
+          } else if (m.type === 'gap') {
+            const s = (DELTA * w) / 2
             if (m.axis === 'v') {
               bump(m.aId, -s, 0)
               bump(m.bId, s, 0)
@@ -491,7 +490,7 @@ export function InteractionLayer({
               bump(m.bId, 0, s)
             }
           } else {
-            const s = DELTA * strength
+            const s = DELTA * w
             if (m.side === 'left') bump(m.elId, s, 0)
             else if (m.side === 'right') bump(m.elId, -s, 0)
             else if (m.side === 'top') bump(m.elId, 0, s)
@@ -562,11 +561,13 @@ export function InteractionLayer({
       // ===== zero-overlap number layout: push every label clear of words/letters/heads/each other =====
       if (pending.length) {
         const obstacles: Rect[] = []
-        // every reactive element box (placed + its target nudge) is an obstacle for numbers
+        // every reactive INK box (placed + its target nudge) is an obstacle for numbers. Use the
+        // letters + words (the real ink), NOT the title BLOCK box — that 200px-tall coarse box is a
+        // trap a number can't escape, and its letters already cover the actual glyphs.
         for (const b of placed) {
+          if (b.kind !== 'letter' && b.kind !== 'word') continue
           const n = targetNudge.get(b.id) ?? { dx: 0, dy: 0 }
-          if (b.kind === 'letter' || b.kind === 'word' || b.id === 'title')
-            obstacles.push({ x: b.x + n.dx, y: b.y + n.dy, w: b.w, h: b.h })
+          obstacles.push({ x: b.x + n.dx, y: b.y + n.dy, w: b.w, h: b.h })
         }
         // arrowheads are obstacles too (a number must never sit on a head)
         for (const q of pending) for (const hr of arrowHeadRects(q.arrow)) obstacles.push(hr)

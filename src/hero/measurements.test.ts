@@ -197,25 +197,36 @@ describe('cursorRelevance — gaps', () => {
   })
 })
 
-describe('cursorRelevance — margins band gating', () => {
+describe('cursorRelevance — margins continuous relevance', () => {
   const art: Artboard = { w: 1000, h: 800 }
   const box: Box = { id: 'w', kind: 'word', x: 100, y: 200, w: 300, h: 100 }
   const left = buildMargins([box], art).find(
     (m) => m.type === 'margin' && m.side === 'left',
   ) as Extract<Measurement, { type: 'margin' }>
+  // left edge is at x=100; element y-extent is [200,300]
 
-  it('is relevant only when the cursor is in the margin band', () => {
-    // in band: left of the element (x<100) and within its y-extent
-    const inBand = cursorRelevance(left, { x: 50, y: 250 }, 150)
-    expect(inBand.strength).toBeGreaterThan(0)
+  it('is relevant in the band beside the element edge', () => {
+    expect(cursorRelevance(left, { x: 50, y: 250 }, 150).strength).toBeGreaterThan(0)
+  })
 
-    // outside the band on x (cursor is to the RIGHT of the element's left edge)
-    const wrongX = cursorRelevance(left, { x: 200, y: 250 }, 150)
-    expect(wrongX.strength).toBe(0)
+  it('relevance is CONTINUOUS across the element edge (no cliff -> no rubberband)', () => {
+    // just outside the edge (in the band) vs just inside — strength must barely change. The old
+    // binary in-band gate dropped it 0.99->0 here and made the relax spring jump ~26px.
+    const justOut = cursorRelevance(left, { x: 99, y: 250 }, 150).strength
+    const justIn = cursorRelevance(left, { x: 101, y: 250 }, 150).strength
+    expect(Math.abs(justOut - justIn)).toBeLessThan(0.05)
+    expect(justOut).toBeGreaterThan(0.6)
+  })
 
-    // outside the band on y (above the element's extent)
-    const wrongY = cursorRelevance(left, { x: 50, y: 0 }, 150)
-    expect(wrongY.strength).toBe(0)
+  it('is strongest at the edge and decays with distance', () => {
+    const atEdge = cursorRelevance(left, { x: 100, y: 250 }, 150).strength
+    const near = cursorRelevance(left, { x: 60, y: 250 }, 150).strength
+    expect(atEdge).toBeGreaterThan(near)
+  })
+
+  it('falls off to 0 far from the element edge (in x and in y)', () => {
+    expect(cursorRelevance(left, { x: -200, y: 250 }, 150).strength).toBe(0)
+    expect(cursorRelevance(left, { x: 50, y: -200 }, 150).strength).toBe(0)
   })
 
   it('tracks along the border extent (y clamped) for a left margin', () => {

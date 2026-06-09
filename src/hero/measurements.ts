@@ -231,24 +231,22 @@ export function cursorRelevance(m: Measurement, p: Pt, radius: number): { streng
     return { strength: Math.max(0, 1 - d / radius), track: { x: tx, y: lineY } }
   }
 
-  // margin: gated to its band, distance measured perpendicular to the border
-  // distance is measured to the ELEMENT edge (so the margin lights up when the cursor is
-  // near the word in the negative space), not to the far page border.
+  // margin: relevance = distance from the cursor to the element EDGE SEGMENT (the side facing the
+  // border), measured as distance-to-segment. This is CONTINUOUS everywhere — including as the
+  // cursor crosses the edge or runs off the ends of the extent — so the relax target it drives never
+  // jumps (the old binary in-band/in-extent gate flipped strength 0.99->0 at the edge and made the
+  // spring rubberband). The segment spans the element's extent [lo,hi] along the border.
   if (m.side === 'left' || m.side === 'right') {
-    const inExtent = p.y >= m.lo && p.y <= m.hi
-    const elEdge = m.side === 'left' ? m.span.x2 : m.span.x1
-    const inBand = m.side === 'left' ? p.x < elEdge : p.x > elEdge
-    if (!inExtent || !inBand) return { strength: 0, track: { x: p.x, y: clamp(p.y, m.lo, m.hi) } }
-    const d = Math.abs(p.x - elEdge)
-    return { strength: Math.max(0, 1 - d / radius), track: { x: p.x, y: clamp(p.y, m.lo, m.hi) } }
+    const elEdge = m.side === 'left' ? m.span.x2 : m.span.x1 // element's left/right edge x
+    const ty = clamp(p.y, m.lo, m.hi)
+    const d = Math.hypot(p.x - elEdge, p.y - ty)
+    return { strength: Math.max(0, 1 - d / radius), track: { x: p.x, y: ty } }
   }
 
-  const inExtent = p.x >= m.lo && p.x <= m.hi
-  const elEdge = m.side === 'top' ? m.span.y2 : m.span.y1
-  const inBand = m.side === 'top' ? p.y < elEdge : p.y > elEdge
-  if (!inExtent || !inBand) return { strength: 0, track: { x: clamp(p.x, m.lo, m.hi), y: p.y } }
-  const d = Math.abs(p.y - elEdge)
-  return { strength: Math.max(0, 1 - d / radius), track: { x: clamp(p.x, m.lo, m.hi), y: p.y } }
+  const elEdge = m.side === 'top' ? m.span.y2 : m.span.y1 // element's top/bottom edge y
+  const tx = clamp(p.x, m.lo, m.hi)
+  const d = Math.hypot(p.x - tx, p.y - elEdge)
+  return { strength: Math.max(0, 1 - d / radius), track: { x: tx, y: p.y } }
 }
 
 /**
