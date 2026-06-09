@@ -32,35 +32,42 @@ function aspectLabel(aspect: number): string {
 }
 
 /**
- * The key beside the composition: the palette's hex codes up top (each rendered in its own color,
- * selectable and click-to-copy), the math underneath — the ratios the cuts actually used, the
- * structure counts, the construction program, the canvas aspect, the seed. The same restrained
- * mono language as the rail, so it reads as part of the instrument, not a sticker on the art.
+ * The composition's key: the palette's hex codes up top (each rendered in its own color, selectable
+ * and click-to-copy), the math underneath — the ratios the cuts actually used, the structure counts,
+ * the construction program, the canvas aspect, the seed.
+ *
+ * It sits STATIC in the lower right, right-aligned with the Chickpea·studio menu above (same
+ * right: 14, same slate-blur chip language), so the two corners read as one instrument and the key
+ * never jumps around with the composition or clashes with the menu.
  */
 export function CompositionKey({
   palette,
   grid,
   seed,
-  maxHeight,
 }: {
   palette: PaletteColor[]
   grid: Grid
   seed: number
-  maxHeight: number
 }) {
   return (
     <div
       style={{
+        position: 'fixed',
+        right: 14,
+        bottom: 14,
+        zIndex: 40, // beneath the brand menu (60)
         width: 172,
-        maxHeight,
+        maxHeight: 'calc(100vh - 130px)', // never climbs into the menu's corner
         boxSizing: 'border-box',
-        alignSelf: 'flex-start',
         display: 'flex',
         flexDirection: 'column',
         gap: 18,
         padding: '16px 16px 18px',
-        background: 'rgba(0,0,0,0.1)',
-        border: `1px solid ${HAIR}`,
+        borderRadius: 16,
+        background: 'rgba(93,100,107,0.6)',
+        backdropFilter: 'blur(8px)',
+        WebkitBackdropFilter: 'blur(8px)',
+        border: `1px solid rgba(244,240,232,0.12)`,
         overflowY: 'auto',
         fontFamily: 'var(--font-mono)',
         color: CREAM,

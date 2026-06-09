@@ -298,35 +298,25 @@ export function Studio() {
             (() => {
               const { w, h } = fitBox(size, grid.aspect)
               return (
-                // a wrapping row: the composition with the key at its right; on narrow stages the
-                // key wraps underneath instead of overlapping or clipping
-                <div
-                  style={{
-                    display: 'flex',
-                    flexWrap: 'wrap',
-                    justifyContent: 'center',
-                    alignItems: 'flex-start',
-                    gap: 18,
-                  }}
-                >
-                  <div style={{ position: 'relative', width: w, height: h }}>
-                    <div style={{ boxShadow: '0 24px 80px rgba(0,0,0,0.32)' }}>
-                      {colorsOn ? (
-                        <CompositionSvg composition={composition} grid={grid} size={size} aspect={grid.aspect} />
-                      ) : (
-                        // colors off: a bare board so the skeleton reads alone
-                        <div style={{ width: w, height: h, background: 'rgba(0,0,0,0.14)', border: `1px solid rgba(244,240,232,0.18)`, boxSizing: 'border-box' }} />
-                      )}
-                    </div>
-                    <SkeletonReveal grid={grid} size={size} aspect={grid.aspect} show={revealOn || !colorsOn} ink={inkHex} />
+                <div style={{ position: 'relative', width: w, height: h }}>
+                  <div style={{ boxShadow: '0 24px 80px rgba(0,0,0,0.32)' }}>
+                    {colorsOn ? (
+                      <CompositionSvg composition={composition} grid={grid} size={size} aspect={grid.aspect} />
+                    ) : (
+                      // colors off: a bare board so the skeleton reads alone
+                      <div style={{ width: w, height: h, background: 'rgba(0,0,0,0.14)', border: `1px solid rgba(244,240,232,0.18)`, boxSizing: 'border-box' }} />
+                    )}
                   </div>
-                  <CompositionKey palette={palette} grid={grid} seed={seed} maxHeight={h} />
+                  <SkeletonReveal grid={grid} size={size} aspect={grid.aspect} show={revealOn || !colorsOn} ink={inkHex} />
                 </div>
               )
             })()
           )
         }
       </Stage>
+
+      {/* the key lives OUTSIDE the stage flow: static lower-right, right-aligned with the menu */}
+      {!bisecting && <CompositionKey palette={palette} grid={grid} seed={seed} />}
     </main>
   )
 }
