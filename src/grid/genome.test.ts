@@ -106,3 +106,50 @@ describe('genomeToGrid — perfect tiling by construction', () => {
     expect(high.variance).toBeGreaterThan(1) // still varied at a fixed dial
   })
 })
+
+describe('construction strategies (spiral / echo / mirror)', () => {
+  const force = (seed: number, strategy: 'spiral' | 'echo' | 'mirror') => {
+    const rng = mulberry32(seed)
+    const g = { ...sampleGenome(rng), strategy, targetLeaves: 12 }
+    return genomeToGrid(g, seed, rng)
+  }
+
+  it('a spiral whirl is a valid tiling with crisp guides and a coherent ratio readout', () => {
+    for (const seed of [3, 11, 27, 64]) {
+      const g = force(seed, 'spiral')
+      expect(checkBounds(g.modules, 1e-9)).toBe(true)
+      expect(checkTiling(g.modules, 1e-9).covered).toBe(true)
+      expect(checkCrispGuides(g)).toBe(true)
+      expect(g.modules.length).toBeGreaterThanOrEqual(5)
+      expect(g.meta?.strategy).toBe('spiral whirl')
+    }
+  })
+
+  it('an echo cascade is a valid tiling with crisp guides', () => {
+    for (const seed of [5, 19, 42]) {
+      const g = force(seed, 'echo')
+      expect(checkBounds(g.modules, 1e-9)).toBe(true)
+      expect(checkTiling(g.modules, 1e-9).covered).toBe(true)
+      expect(checkCrispGuides(g)).toBe(true)
+    }
+  })
+
+  it('a mirror genome produces true bilateral symmetry: every module has its exact reflection', () => {
+    for (const seed of [7, 23, 55]) {
+      const g = force(seed, 'mirror')
+      expect(checkBounds(g.modules, 1e-9)).toBe(true)
+      expect(checkTiling(g.modules, 1e-9).covered).toBe(true)
+      expect(checkCrispGuides(g)).toBe(true)
+      const genome = g.meta?.genome as { mirrorAxis: 'v' | 'h' }
+      const axis = genome.mirrorAxis
+      for (const m of g.modules) {
+        const rx = axis === 'v' ? 1 - m.x - m.w : m.x
+        const ry = axis === 'h' ? 1 - m.y - m.h : m.y
+        const hit = g.modules.some(
+          (o) => Math.abs(o.x - rx) < 1e-9 && Math.abs(o.y - ry) < 1e-9 && Math.abs(o.w - m.w) < 1e-9 && Math.abs(o.h - m.h) < 1e-9,
+        )
+        expect(hit).toBe(true)
+      }
+    }
+  })
+})

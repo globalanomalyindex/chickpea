@@ -18,10 +18,10 @@
  *   interest        — orientation/size/guide variety, GATED by alignment so it never pays for noise
  */
 
-import type { Grid } from './types'
+import type { Grid, Module } from './types'
 import type { CutRef } from './tree'
 import { clamp, lerp } from '../palette/sampling'
-import { snapToRatio } from './anchor'
+import { snapToRatio } from './ratios'
 import { DEFAULT_DIALS, type Dials } from './genome'
 
 export interface ScoreBreakdown {
@@ -157,7 +157,7 @@ export function scoreGrid(grid: Grid, dials: Dials = DEFAULT_DIALS): ScoreBreakd
   const giantDamp = 1 - smooth(areaHerf, 0.5, 0.78)
   const hierarchy = dominance * (0.45 + 0.55 * support) * giantDamp
 
-  // balance — area-weighted centroid near center, or deliberately offset as Tension rises.
+  // balance — area-weighted centroid near center, or deliberately offset as Tension rises…
   let cx = 0
   let cy = 0
   for (const m of mods) {
@@ -166,7 +166,24 @@ export function scoreGrid(grid: Grid, dials: Dials = DEFAULT_DIALS): ScoreBreakd
   }
   const offset = Math.hypot(cx - 0.5, cy - 0.5)
   const targetOff = 0.04 + 0.2 * dials.tension
-  const balance = bell(offset, targetOff, 0.22)
+  // …or true bilateral SYMMETRY, which is balance in its strongest form: the area fraction whose
+  // mirror image exists as an actual module. Only near-perfect symmetry rides this road (a half-
+  // symmetric accident is not a statement), so it rewards the mirror genre without rewarding mush.
+  const symFrac = (axis: 'v' | 'h'): number => {
+    let s = 0
+    for (const m of mods) {
+      const rx = axis === 'v' ? 1 - m.x - m.w : m.x
+      const ry = axis === 'h' ? 1 - m.y - m.h : m.y
+      const hit = mods.some(
+        (o: Module) =>
+          Math.abs(o.x - rx) < 1e-6 && Math.abs(o.y - ry) < 1e-6 && Math.abs(o.w - m.w) < 1e-6 && Math.abs(o.h - m.h) < 1e-6,
+      )
+      if (hit) s += m.w * m.h
+    }
+    return s
+  }
+  const symmetry = Math.max(symFrac('v'), symFrac('h'))
+  const balance = Math.max(bell(offset, targetOff, 0.22), smooth(symmetry, 0.92, 0.995) * 0.95)
 
   // complexityMatch — effective cell count tracks the Complexity dial (effective, so slivers can't pad).
   const targetCells = lerp(3, 22, dials.complexity)

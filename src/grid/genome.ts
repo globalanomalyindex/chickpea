@@ -21,7 +21,7 @@ import { pick, type Rng } from './prng'
 import { clamp, lerp } from '../palette/sampling'
 import type { Axis, Grid, Guide, Module, RatioRef } from './types'
 import { type Cell, type CutRef, cellToModule, splitCell } from './tree'
-import { snapToRatio, ratioName } from './anchor'
+import { snapToRatio, ratioName } from './ratios'
 
 // ---- dials (the only studio controls; bias the sampler, never break the guarantees) ----
 
@@ -54,13 +54,27 @@ const VOICES: Record<string, number[]> = {
   eighths: [0.125, 0.375, 0.625, 0.875],
   root5: [0.236, 0.764],
   sqrt2: [1 - 1 / Math.SQRT2, 1 / Math.SQRT2],
+  // the silver sections (√2−1 ≈ 0.414 and 2−√2 ≈ 0.586): the proportion of the silver rectangle,
+  // the "yamato-hi" of classical japanese carpentry — calmer than golden, livelier than the half
+  silver: [Math.SQRT2 - 1, 2 - Math.SQRT2],
 }
 const CALM_VOICES: number[][] = [VOICES.halves, VOICES.thirds, VOICES.quarters, VOICES.sixths]
-const DYNAMIC_VOICES: number[][] = [VOICES.golden, VOICES.fifths, VOICES.root5, VOICES.eighths, VOICES.sqrt2]
+const DYNAMIC_VOICES: number[][] = [VOICES.golden, VOICES.fifths, VOICES.root5, VOICES.eighths, VOICES.sqrt2, VOICES.silver]
 
 // overall canvas aspect ratios (w/h) the engine can pick for a composition; 1 stays the common case.
 const CANVAS_ASPECTS = [4 / 5, 5 / 4, 3 / 4, 4 / 3, 2 / 3, 3 / 2]
 const sampleAspect = (rng: Rng): number => (rng() < 0.58 ? 1 : pick(rng, CANVAS_ASPECTS))
+
+/**
+ * The construction STRATEGY — the coordinated cut programs a leaf-by-leaf frontier can never walk
+ * into by chance:
+ *   free   — the original organic↔lattice spectrum (frontier growth / stamped lattice)
+ *   spiral — a whirling-rectangles chain (the nautilus/sunflower structure): each turn slices a
+ *            slab off the running cell and rotates a quarter, spiraling into an eye
+ *   echo   — a self-similar cascade: the same voice split restamped into one child at each level
+ *   mirror — bilateral symmetry: one half is grown, the other is its exact reflection
+ */
+export type GridStrategy = 'free' | 'spiral' | 'echo' | 'mirror'
 
 export interface GridGenome {
   targetLeaves: number // desired module count — the universal complexity knob
@@ -78,6 +92,8 @@ export interface GridGenome {
   marginFrac: number // 0..0.08 — outer poster margin (render-time inset; area preserved)
   gutterFrac: number // 0..0.03 — inter-cell gutter (render-time inset; area preserved)
   aspect: number // overall canvas aspect (w/h): 1 = square, else portrait/landscape
+  strategy: GridStrategy // the construction program (free / spiral / echo / mirror)
+  mirrorAxis: Axis // which center line a mirror genome reflects across
 }
 
 // ---- sampling ----
@@ -108,6 +124,19 @@ export function sampleGenome(rng: Rng, dials: Dials = DEFAULT_DIALS): GridGenome
 
   const voice = sampleVoice(rng, tn)
 
+  // construction strategy: mostly free growth; the coordinated programs (spiral/echo/mirror) are
+  // each a deliberate minority genre. tension leans spiral (dynamic) vs mirror (formal, calm).
+  // Rates are kept LOW because the specials over-win their share at selection (a spiral's strong
+  // hierarchy + single-ratio coherence wins ~3× its genome rate; measured 35% of seeds at a 10%
+  // rate — the same monoculture pressure the palette's ramp genre showed).
+  const spiralP = lerp(0.02, 0.045, tn)
+  const echoP = 0.06
+  const mirrorP = lerp(0.075, 0.045, tn)
+  const sRoll = rng()
+  const freeP = 1 - spiralP - echoP - mirrorP
+  const strategy: GridStrategy =
+    sRoll < freeP ? 'free' : sRoll < freeP + spiralP ? 'spiral' : sRoll < freeP + spiralP + echoP ? 'echo' : 'mirror'
+
   return {
     targetLeaves: clamp(targetLeaves, 3, 28),
     depthBias: clamp(rng() + (cx - 0.5) * 0.3, 0, 1),
@@ -124,6 +153,8 @@ export function sampleGenome(rng: Rng, dials: Dials = DEFAULT_DIALS): GridGenome
     marginFrac: rng() < 0.4 ? lerp(0.02, 0.08, rng()) : 0,
     gutterFrac: rng() < lerp(0.15, 0.7, rh) ? lerp(0.004, 0.03, rng()) : 0,
     aspect: sampleAspect(rng),
+    strategy,
+    mirrorAxis: rng() < 0.5 ? 'v' : 'h',
   }
 }
 
@@ -150,7 +181,7 @@ export function mutateGenome(g: GridGenome, rng: Rng, amt = 1): GridGenome {
     gutterFrac: clamp(g.gutterFrac + j(0.006), 0, 0.03),
   }
   if (rng() < 0.25) {
-    const k = Math.floor(rng() * 4)
+    const k = Math.floor(rng() * 5)
     if (k === 0) {
       next.voice = sampleVoice(rng, 0.5)
       next.primaryRatio = pick(rng, next.voice)
@@ -158,8 +189,14 @@ export function mutateGenome(g: GridGenome, rng: Rng, amt = 1): GridGenome {
       next.arityLambda = rng() < 0.5 ? lerp(0, 0.3, rng()) : lerp(0.3, 2.5, rng())
     } else if (k === 2) {
       next.regularity = rng() < 0.5 ? lerp(0, 0.4, rng()) : lerp(0.6, 1, rng())
-    } else {
+    } else if (k === 3) {
       next.axisBias = clamp(0.5 + tri(rng) * 0.5, 0.05, 0.95)
+    } else {
+      // strategy hops only EXIT a coordinated program, never enter one: with the specials scoring
+      // well, an enter-hop is a one-way door that converts free genomes into spirals mid-climb
+      // (the same ratchet that pushed the palette's ramps to 42% of seeds before it was removed)
+      if (g.strategy !== 'free' && rng() < 0.6) next.strategy = 'free'
+      else next.mirrorAxis = rng() < 0.5 ? 'v' : 'h'
     }
   }
   if (!next.voice.includes(next.primaryRatio)) next.primaryRatio = next.voice[0]
@@ -275,9 +312,118 @@ function layLattice(root: Cell, g: GridGenome, rng: Rng, count: number, aspect: 
   return { leaves, cuts }
 }
 
+/**
+ * The whirling-rectangles chain — the spiral of the nautilus shell and the sunflower head, built as
+ * a coordinated cut program: each turn slices a slab off the running cell at the spiral ratio and
+ * rotates a quarter (left → top → right → bottom), spiraling inward until the eye is too small to
+ * cut. The spiral ratio is the voice member nearest the golden section (falling back to 1/φ itself —
+ * still canon, still truthfully labelled), so arms shrink in a recognizable geometric progression.
+ */
+function laySpiral(root: Cell, g: GridGenome, rng: Rng, budget: number, aspect: number): { leaves: Cell[]; cuts: CutRef[] } {
+  let keep = 0
+  for (const v of g.voice) {
+    const k = Math.max(v, 1 - v)
+    if (k >= 0.55 && k <= 0.78 && Math.abs(k - 0.618) < Math.abs(keep - 0.618)) keep = k
+  }
+  if (keep === 0) keep = 0.618
+  const cw = rng() < 0.5 // spin direction
+  // sides cycle 0:left(v) 1:top(h) 2:right(v) 3:bottom(h); start on the longer rendered side
+  let side = (root.x1 - root.x0) * aspect >= root.y1 - root.y0 ? 0 : 1
+  if (rng() < 0.5) side = (side + 2) % 4
+  let cur = root
+  const leaves: Cell[] = []
+  const cuts: CutRef[] = []
+  for (let t = 0; t < budget; t++) {
+    const axis: Axis = side % 2 === 0 ? 'v' : 'h'
+    if (!splittable(cur, axis)) break
+    const span = axis === 'v' ? cur.x1 - cur.x0 : cur.y1 - cur.y0
+    const f = side < 2 ? 1 - keep : keep // the slab comes off the low or the high side
+    if (Math.min(f, 1 - f) * span < MIN_CELL) break
+    const { children, cuts: cs } = splitCell(cur, axis, [f])
+    cuts.push(...cs)
+    leaves.push(side < 2 ? children[0] : children[1])
+    cur = side < 2 ? children[1] : children[0]
+    side = cw ? (side + 1) % 4 : (side + 3) % 4
+  }
+  leaves.push(cur) // the spiral eye
+  return { leaves, cuts }
+}
+
+/**
+ * The self-similar cascade: one motif (an axis + voice fractions) restamped into the SAME child at
+ * every level, usually rotating a quarter each time — the structure repeats inside itself at
+ * descending scales, the way a fern frond repeats its own outline. Stops when the carrier child can
+ * no longer host the motif at legible size.
+ */
+function layEcho(root: Cell, g: GridGenome, rng: Rng, target: number): { leaves: Cell[]; cuts: CutRef[] } {
+  const k = rng() < 0.6 ? 2 : 3
+  const fracs = pickFractions(rng, g, k, false)
+  const intoIdx = rng() < 0.5 ? 0 : fracs.length // which child carries the echo (first or last)
+  const rotate = rng() < 0.75
+  let axis: Axis = rng() < g.axisBias ? 'v' : 'h'
+  let cur = root
+  const leaves: Cell[] = []
+  const cuts: CutRef[] = []
+  let guard = 0
+  while (leaves.length + 1 < target && guard++ < 12) {
+    if (!splittable(cur, axis)) {
+      const other: Axis = axis === 'v' ? 'h' : 'v'
+      if (!splittable(cur, other)) break
+      axis = other
+    }
+    const span = axis === 'v' ? cur.x1 - cur.x0 : cur.y1 - cur.y0
+    const bnds = [0, ...fracs, 1]
+    const safe = bnds.every((p, i) => i === 0 || (p - bnds[i - 1]) * span >= MIN_CELL)
+    if (!safe) break
+    const { children, cuts: cs } = splitCell(cur, axis, fracs)
+    cuts.push(...cs)
+    for (let i = 0; i < children.length; i++) if (i !== intoIdx) leaves.push(children[i])
+    cur = children[intoIdx]
+    if (rotate) axis = axis === 'v' ? 'h' : 'v'
+  }
+  leaves.push(cur)
+  return { leaves, cuts }
+}
+
+/**
+ * Bilateral symmetry: cut the canvas at its center line, grow ONE half freely, and reflect it. The
+ * reflection is exact: every mirrored coordinate is computed once (memoized 1−x) and shared by all
+ * cells that touch it, so reflected edges are `===` just like slice-tree edges, and horizontal
+ * guides reflect onto themselves (one guide serves both halves). Guillotine randomness essentially
+ * never lands on symmetry by chance; as a program it is one cut and a map.
+ */
+function mirrorGrow(root: Cell, g: GridGenome, rng: Rng, target: number, aspect: number): { leaves: Cell[]; cuts: CutRef[] } {
+  const axis = g.mirrorAxis
+  const { children, cuts } = splitCell(root, axis, [0.5])
+  const leaves: Cell[] = [children[0]]
+  const allCuts: CutRef[] = [...cuts]
+  growFrontier(leaves, allCuts, g, rng, Math.max(2, Math.ceil(target / 2)), aspect)
+  const memo = new Map<number, number>()
+  const mir = (v: number): number => {
+    let m = memo.get(v)
+    if (m === undefined) {
+      m = 1 - v
+      memo.set(v, m)
+    }
+    return m
+  }
+  const mirroredLeaves: Cell[] = leaves.map((c) =>
+    axis === 'v'
+      ? { x0: mir(c.x1), x1: mir(c.x0), y0: c.y0, y1: c.y1, axis: c.axis, depth: c.depth }
+      : { x0: c.x0, x1: c.x1, y0: mir(c.y1), y1: mir(c.y0), axis: c.axis, depth: c.depth },
+  )
+  const mirroredCuts: CutRef[] = allCuts.map((c) =>
+    c.axis === axis
+      ? { axis: c.axis, pos: mir(c.pos), frac: 1 - c.frac, lo: mir(c.hi), hi: mir(c.lo), depth: c.depth }
+      : c, // cuts parallel to the mirror keep their position — one guide serves both halves
+  )
+  return { leaves: [...leaves, ...mirroredLeaves], cuts: [...allCuts, ...mirroredCuts] }
+}
+
 /** Grow `leaves` by frontier expansion until it reaches `target` (or no cell can be split). Each step
- * picks a leaf weighted by area^recurseExponent and depth, splits it into a binary or n-ary band. */
-function growFrontier(leaves: Cell[], cuts: CutRef[], g: GridGenome, rng: Rng, target: number, aspect: number): void {
+ * picks a leaf weighted by area^recurseExponent and depth, splits it into a binary or n-ary band.
+ * Exported: the anchor system grows its scored interiors with the same machinery. */
+export function growFrontier(leaves: Cell[], cuts: CutRef[], g: GridGenome, rng: Rng, target: number, aspect: number): void {
   let guard = 0
   while (leaves.length < target && guard++ < 400) {
     const idxs = leaves.map((_, i) => i).filter((i) => canSplit(leaves[i]))
@@ -319,8 +465,9 @@ function growFrontier(leaves: Cell[], cuts: CutRef[], g: GridGenome, rng: Rng, t
   }
 }
 
-/** Dedupe cuts into the unique guide set (a row cut stamped across columns collapses to one guide). */
-function uniqueCuts(cuts: CutRef[]): CutRef[] {
+/** Dedupe cuts into the unique guide set (a row cut stamped across columns collapses to one guide).
+ * Exported for the anchor system. */
+export function uniqueCuts(cuts: CutRef[]): CutRef[] {
   const seen = new Set<string>()
   const out: CutRef[] = []
   for (const c of cuts) {
@@ -379,17 +526,41 @@ export function genomeToGrid(g: GridGenome, seed: number, rng: Rng): Grid {
   const root: Cell = { x0: 0, x1: 1, y0: 0, y1: 1, axis: null, depth: 0 }
   let leaves: Cell[] = [root]
   let cuts: CutRef[] = []
+  let lattice = false
+  let strategyUsed = 'unified guillotine slice-tree'
 
-  const lattice = rng() < g.regularity
-  if (lattice) {
-    const broken = rng() < 1 - g.regularity
-    const baseCount = broken ? Math.max(4, Math.round(g.targetLeaves * 0.6)) : g.targetLeaves
-    const laid = layLattice(root, g, rng, baseCount, g.aspect)
+  if (g.strategy === 'spiral') {
+    // the whirl skeleton, then frontier growth tops up the budget by subdividing the big arms —
+    // a pure 5-cell whirl is gorgeous but reads under-built at higher complexity
+    const budget = Math.min(Math.max(4, g.targetLeaves - 1), 8)
+    const laid = laySpiral(root, g, rng, budget, g.aspect)
     leaves = laid.leaves
     cuts = laid.cuts
-    if (broken) growFrontier(leaves, cuts, g, rng, g.targetLeaves, g.aspect)
+    if (leaves.length < g.targetLeaves) growFrontier(leaves, cuts, g, rng, g.targetLeaves, g.aspect)
+    strategyUsed = 'spiral whirl'
+  } else if (g.strategy === 'echo') {
+    const laid = layEcho(root, g, rng, Math.max(4, Math.round(g.targetLeaves * 0.8)))
+    leaves = laid.leaves
+    cuts = laid.cuts
+    if (leaves.length < g.targetLeaves) growFrontier(leaves, cuts, g, rng, g.targetLeaves, g.aspect)
+    strategyUsed = 'echo (self-similar cascade)'
+  } else if (g.strategy === 'mirror') {
+    const laid = mirrorGrow(root, g, rng, g.targetLeaves, g.aspect)
+    leaves = laid.leaves
+    cuts = laid.cuts
+    strategyUsed = 'mirrored (bilateral symmetry)'
   } else {
-    growFrontier(leaves, cuts, g, rng, g.targetLeaves, g.aspect)
+    lattice = rng() < g.regularity
+    if (lattice) {
+      const broken = rng() < 1 - g.regularity
+      const baseCount = broken ? Math.max(4, Math.round(g.targetLeaves * 0.6)) : g.targetLeaves
+      const laid = layLattice(root, g, rng, baseCount, g.aspect)
+      leaves = laid.leaves
+      cuts = laid.cuts
+      if (broken) growFrontier(leaves, cuts, g, rng, g.targetLeaves, g.aspect)
+    } else {
+      growFrontier(leaves, cuts, g, rng, g.targetLeaves, g.aspect)
+    }
   }
 
   const uniq = uniqueCuts(cuts)
@@ -413,7 +584,7 @@ export function genomeToGrid(g: GridGenome, seed: number, rng: Rng): Grid {
       gutterFrac: g.gutterFrac,
       distinctRatios: distinct,
       lattice,
-      strategy: 'unified guillotine slice-tree',
+      strategy: strategyUsed,
     },
   }
 }

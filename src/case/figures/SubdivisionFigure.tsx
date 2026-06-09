@@ -23,7 +23,7 @@ export function SubdivisionFigure() {
     <Figure
       index="01"
       title="Recursive subdivision"
-      caption="Start with the whole canvas as one cell; repeatedly pick the largest cell and split it at a ratio position (½, or the golden 0.382 / 0.618). Every split replaces one rectangle with two that exactly fill it — so however far you push the count, the tiling never gaps or overlaps. That invariant is enforced in tests, not hoped for."
+      caption="start with the whole canvas as one cell; repeatedly pick the largest cell and split it at a ratio position (½, or the golden 0.382 / 0.618). every split replaces one rectangle with two that exactly fill it, so however far you push the count, the tiling never gaps or overlaps. that invariant is enforced in tests, not hoped for."
     >
       <FigureSlider
         label="target cells"

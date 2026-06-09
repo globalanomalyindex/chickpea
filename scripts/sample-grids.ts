@@ -20,12 +20,14 @@ function analyze(seed: number, dials: Dials) {
   const sb = scoreGrid(g, dials)
   const valid = checkBounds(g.modules, 1e-9) && checkTiling(g.modules, 1e-9).covered && checkCrispGuides(g)
   const areaHerf = areas.reduce((s, a) => s + a * a, 0)
+  const genome = g.meta?.genome as { strategy?: string } | undefined
   return {
     seed,
     modules: g.modules.length,
     guides: g.guides.length,
     score: +sb.total.toFixed(3),
     valid,
+    strategy: genome?.strategy ?? 'free',
     aspect: +(g.aspect ?? 1).toFixed(3),
     effCells: +(1 / areaHerf).toFixed(2),
     maxAspect: +Math.max(...aspects).toFixed(2),
@@ -71,6 +73,10 @@ const stats = {
   // --- style coverage: styles should EMERGE, none named ---
   pctNonSquare: pct(all.filter((a) => Math.abs(a.aspect - 1) > 0.01).length, N),
   pctLattice: pct(all.filter((a) => a.lattice).length, N),
+  // --- coordinated-strategy emergence (the genres frontier growth can't reach) ---
+  pctSpiral: pct(all.filter((a) => a.strategy === 'spiral').length, N),
+  pctEcho: pct(all.filter((a) => a.strategy === 'echo').length, N),
+  pctMirror: pct(all.filter((a) => a.strategy === 'mirror').length, N),
   pctClearlyLattice: pct(all.filter((a) => a.alignment > 0.8 && a.crisp > 0.7).length, N),
   pctClearHierarchy: pct(all.filter((a) => a.hierarchy > 0.45).length, N),
   pctHighRatioCoh: pct(all.filter((a) => a.ratioCoh > 0.7).length, N),
