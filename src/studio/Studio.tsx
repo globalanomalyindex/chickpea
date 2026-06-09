@@ -16,7 +16,7 @@ import { compositionToPngBlob, ensureExportFontReady } from '../io/export-png'
 import { gridSkeletonToPngBlob, LIGHT_INK, DARK_INK } from '../io/export-skeleton-png'
 import { exportFilename } from '../io/filename'
 import { downloadBlob, downloadText } from '../io/download'
-import { CornerNav } from '../app/CornerNav'
+import { BrandMenu } from '../app/BrandMenu'
 import './studio.css'
 
 const SLATE = '#5d646b'
@@ -223,7 +223,7 @@ export function Studio() {
       className="studio-shell"
       style={{ position: 'fixed', inset: 0, background: SLATE, fontFamily: 'var(--font-mono)' }}
     >
-      <CornerNav />
+      <BrandMenu />
       <GeneratorControls
         mode={mode}
         complexity={complexity}

@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
 import type { Grid } from '../grid/types'
 import type { StudioMode, InkMode } from './Studio'
 import type { PaletteColor } from '../palette/generate'
@@ -10,7 +9,7 @@ const HAIR = 'rgba(244,240,232,0.22)'
 
 interface Props {
   mode: StudioMode
-  /** the three expressive dials (0..1) — bias the engine's distribution; the seed re-rolls within it */
+  /** the three expressive dials (0..1): bias the engine's distribution; the seed re-rolls within it */
   complexity: number
   tension: number
   rhythm: number
@@ -56,34 +55,17 @@ export function GeneratorControls(p: Props) {
       className="studio-rail"
       style={{
         boxSizing: 'border-box',
-        padding: '32px 28px',
+        // generous bottom padding so the scrolling content always clears the fixed BrandMenu
+        padding: '32px 28px 104px',
         display: 'flex',
         flexDirection: 'column',
-        gap: 28,
+        gap: 26,
         background: 'rgba(0,0,0,0.06)',
         borderRight: `1px solid ${HAIR}`,
         color: CREAM,
         overflowY: 'auto',
       }}
     >
-      <header>
-        <div style={{ fontFamily: 'var(--font-display)', fontSize: 34, lineHeight: 1, letterSpacing: '-0.03em' }}>
-          Chickpea
-        </div>
-        <div
-          style={{
-            fontFamily: 'var(--font-mono)',
-            fontSize: 10.5,
-            letterSpacing: '0.14em',
-            textTransform: 'uppercase',
-            opacity: 0.6,
-            marginTop: 6,
-          }}
-        >
-          generative grid studio
-        </div>
-      </header>
-
       <Section label="source">
         <Segmented
           options={[
@@ -117,7 +99,7 @@ export function GeneratorControls(p: Props) {
       {p.imageCommitted && (
         <Section label="bisection">
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, lineHeight: 1.5, opacity: 0.7, marginBottom: 10 }}>
-            cuts are anchored to ratio positions; Generate re-seeds the math around them.
+            cuts are anchored to ratio positions; generate re-seeds the math around them.
           </div>
           <ActionButton label="↶ re-bisect" hint="upload / re-cut" onClick={p.onReBisect} />
         </Section>
@@ -128,18 +110,18 @@ export function GeneratorControls(p: Props) {
           <Section label="seed">
             <SeedField seed={p.seed} onSeed={p.onSeed} />
             <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-              <ActionButton label="Generate" hint="new seed" onClick={p.onGenerate} primary />
-              <ActionButton label="Iterate" hint="seed + 1" onClick={p.onIterate} />
+              <ActionButton label="generate" hint="new seed" onClick={p.onGenerate} primary />
+              <ActionButton label="iterate" hint="seed + 1" onClick={p.onIterate} />
             </div>
             <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-              <ActionButton label="↶ Undo" hint="⌘Z" onClick={p.onUndo} disabled={!p.canUndo} grow />
-              <ActionButton label="↷ Redo" hint="⇧⌘Z" onClick={p.onRedo} disabled={!p.canRedo} grow />
+              <ActionButton label="↶ undo" hint="⌘Z" onClick={p.onUndo} disabled={!p.canUndo} grow />
+              <ActionButton label="↷ redo" hint="⇧⌘Z" onClick={p.onRedo} disabled={!p.canRedo} grow />
             </div>
           </Section>
 
           <Section label="reveal math">
-            <Toggle label="Show overlay" on={p.revealOn} onClick={p.onToggleReveal} />
-            <Toggle label="Annotations" on={p.annotate} onClick={p.onToggleAnnotate} />
+            <Toggle label="show overlay" on={p.revealOn} onClick={p.onToggleReveal} />
+            <Toggle label="annotations" on={p.annotate} onClick={p.onToggleAnnotate} />
             <div style={{ marginTop: 10 }}>
               <Segmented
                 options={[
@@ -150,7 +132,7 @@ export function GeneratorControls(p: Props) {
                 onChange={(v) => p.onInk(v as InkMode)}
               />
             </div>
-            <Toggle label="Type" on={p.textOn} onClick={p.onToggleText} />
+            <Toggle label="type" on={p.textOn} onClick={p.onToggleText} />
           </Section>
 
           <Section label="readout">
@@ -162,10 +144,10 @@ export function GeneratorControls(p: Props) {
           </Section>
 
           <Section label="export">
-            <ActionButton label="Reveal PNG (alpha)" hint="grid skeleton, transparent" onClick={p.onExportReveal} disabled={p.busy} />
+            <ActionButton label="reveal png (alpha)" hint="grid skeleton, transparent" onClick={p.onExportReveal} disabled={p.busy} />
             <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-              <ActionButton label="PNG" hint="composition" onClick={p.onExportPng} disabled={p.busy} grow />
-              <ActionButton label="SVG" hint="composition" onClick={p.onExportSvg} disabled={p.busy} grow />
+              <ActionButton label="png" hint="composition" onClick={p.onExportPng} disabled={p.busy} grow />
+              <ActionButton label="svg" hint="composition" onClick={p.onExportSvg} disabled={p.busy} grow />
             </div>
           </Section>
         </>
@@ -179,12 +161,6 @@ export function GeneratorControls(p: Props) {
           </div>
         </Section>
       )}
-
-      <div style={{ flex: 1 }} />
-      <div style={{ display: 'flex', gap: 18 }}>
-        <FooterLink to="/" label="← hero" />
-        <FooterLink to="/case" label="case study" />
-      </div>
     </aside>
   )
 }
@@ -197,7 +173,6 @@ function Section({ label, children }: { label: string; children: React.ReactNode
           fontFamily: 'var(--font-mono)',
           fontSize: 10,
           letterSpacing: '0.18em',
-          textTransform: 'uppercase',
           opacity: 0.5,
           marginBottom: 12,
         }}
@@ -209,8 +184,9 @@ function Section({ label, children }: { label: string; children: React.ReactNode
   )
 }
 
-/** A labeled range slider in the dark-rail vocabulary. Live — drags update continuously; the Studio
- * coalesces a whole drag into one undo step. `fmt` formats the readout (e.g. a 0..1 dial as a %). */
+/** A labeled range slider in the dark-rail vocabulary. Live: drags update continuously; the Studio
+ * coalesces a whole drag into one undo step. `fmt` formats the readout (e.g. a 0..1 dial as a %). The
+ * range input is left without an inline cursor so the global custom hand cursor applies. */
 function Slider({
   label,
   value,
@@ -241,9 +217,7 @@ function Slider({
         userSelect: 'none',
       }}
     >
-      <span style={{ letterSpacing: '0.1em', textTransform: 'uppercase', opacity: 0.55, minWidth: '5.5em' }}>
-        {label}
-      </span>
+      <span style={{ letterSpacing: '0.1em', opacity: 0.55, minWidth: '5.5em' }}>{label}</span>
       <input
         type="range"
         min={min}
@@ -251,7 +225,7 @@ function Slider({
         step={step}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        style={{ flex: 1, accentColor: STEEL, cursor: 'pointer' }}
+        style={{ flex: 1, accentColor: STEEL }}
       />
       <span style={{ minWidth: '2.2em', textAlign: 'right', color: STEEL, letterSpacing: '0.04em' }}>
         {fmt ? fmt(value) : value}
@@ -260,7 +234,7 @@ function Slider({
   )
 }
 
-/** Live readout of the generated palette — the hero (index 0) gets a wider cell so it reads dominant. */
+/** Live readout of the generated palette: the hero (index 0) gets a wider cell so it reads dominant. */
 function Swatches({ palette }: { palette: PaletteColor[] }) {
   if (palette.length === 0) return null
   return (
@@ -303,7 +277,6 @@ function Segmented({
               fontFamily: 'var(--font-mono)',
               fontSize: 13,
               letterSpacing: '0.02em',
-              cursor: 'pointer',
               transition: 'background 160ms, color 160ms',
             }}
           >
@@ -381,7 +354,8 @@ function ActionButton({
         fontFamily: 'var(--font-mono)',
         fontSize: 12,
         letterSpacing: '0.04em',
-        cursor: disabled ? 'default' : 'pointer',
+        // disabled keeps the arrow; otherwise the global custom hand cursor applies (no inline override)
+        cursor: disabled ? 'default' : undefined,
         opacity: disabled ? 0.4 : 1,
         transition: 'opacity 160ms, background 160ms',
         whiteSpace: 'nowrap',
@@ -411,7 +385,6 @@ function Toggle({ label, on, onClick }: { label: string; on: boolean; onClick: (
         fontFamily: 'var(--font-mono)',
         fontSize: 13,
         letterSpacing: '0.02em',
-        cursor: 'pointer',
       }}
     >
       <span style={{ opacity: on ? 1 : 0.72 }}>{label}</span>
@@ -439,25 +412,6 @@ function Toggle({ label, on, onClick }: { label: string; on: boolean; onClick: (
         />
       </span>
     </button>
-  )
-}
-
-function FooterLink({ to, label }: { to: string; label: string }) {
-  return (
-    <Link
-      to={to}
-      style={{
-        fontFamily: 'var(--font-mono)',
-        fontSize: 10.5,
-        letterSpacing: '0.12em',
-        textTransform: 'uppercase',
-        color: CREAM,
-        opacity: 0.5,
-        textDecoration: 'none',
-      }}
-    >
-      {label}
-    </Link>
   )
 }
 

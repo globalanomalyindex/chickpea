@@ -10,18 +10,19 @@ body {
 }
 
 /*
- * Custom Chickpea cursors — the warm pixel pointer set, slightly larger than the system cursor.
+ * Custom Chickpea cursors: the warm pixel pointer set, slightly larger than the system cursor.
  * Hotspots are aligned to the underlying real cursor so there's no offset: the arrow keys on its
- * tip (0 0); the hand on its fingertip (11 0). Interactive + draggable things get the hand; text
+ * tip (0 0); the hand on its fingertip (6 0). Interactive + draggable things get the hand; text
  * fields keep the I-beam. PNG fallback keyword (auto/pointer/text) covers any browser that declines.
+ * Range sliders count as interactive (they get the hand, not the I-beam the bare `input` rule gave).
  */
 html, body { cursor: url('/cursors/arrow.png') 0 0, auto; }
 a, button, [role='button'], summary, label[for], select,
-[data-word], [data-block] { cursor: url('/cursors/hand.png') 6 0, pointer; }
-/* The surface menu (hero / studio / case) keeps the plain arrow — only the studio '→' on the
+input[type='range'], [data-word], [data-block] { cursor: url('/cursors/hand.png') 6 0, pointer; }
+/* The surface menu (hero / studio / case) keeps the plain arrow; only the studio arrow on the
  * hero earns the pointing hand, so the hand stays a deliberate signal. */
 nav[aria-label='Surfaces'] a { cursor: url('/cursors/arrow.png') 0 0, auto; }
-input, textarea, [contenteditable='true'] { cursor: text; }
+input:not([type='range']), textarea, [contenteditable='true'] { cursor: text; }
 
 /*
  * Reduced motion: collapse CSS transitions/animations to a hair so nothing slides or

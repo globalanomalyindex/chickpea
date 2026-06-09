@@ -41,7 +41,6 @@ export function CornerNav({ tone = 'light' }: { tone?: 'light' | 'dark' }) {
         fontFamily: 'var(--font-mono)',
         fontSize: 11,
         letterSpacing: '0.16em',
-        textTransform: 'uppercase',
       }}
     >
       {LINKS.map((l, i) => {
