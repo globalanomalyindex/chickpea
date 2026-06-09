@@ -19,6 +19,8 @@ interface Props {
   palette: PaletteColor[]
   grid: Grid
   revealOn: boolean
+  /** false = skeleton only: hide the colored fills beneath the grid */
+  colorsOn: boolean
   ink: InkMode
   annotate: boolean
   textOn: boolean
@@ -38,6 +40,7 @@ interface Props {
   onRedo: () => void
   onReBisect: () => void
   onToggleReveal: () => void
+  onToggleColors: () => void
   onInk: (m: InkMode) => void
   onToggleAnnotate: () => void
   onToggleText: () => void
@@ -119,6 +122,7 @@ export function GeneratorControls(p: Props) {
           </Section>
 
           <Section label="reveal math">
+            <Toggle label="colors" on={p.colorsOn} onClick={p.onToggleColors} />
             <Toggle label="show overlay" on={p.revealOn} onClick={p.onToggleReveal} />
             <Toggle label="annotations" on={p.annotate} onClick={p.onToggleAnnotate} />
             <div style={{ marginTop: 10 }}>

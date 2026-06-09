@@ -9,6 +9,7 @@ import { buildComposition } from './composition'
 import { imagePaletteToPalette } from './imagePalette'
 import { CompositionSvg } from './CompositionSvg'
 import { SkeletonReveal } from './SkeletonReveal'
+import { CompositionKey } from './CompositionKey'
 import { GeneratorControls } from './GeneratorControls'
 import { ImageBisection } from './ImageBisection'
 import { compositionToSvg, loadMafinestDataUrl } from '../io/export-svg'
@@ -115,6 +116,7 @@ export function Studio() {
   const canRedo = hist.future.length > 0
 
   const [revealOn, setRevealOn] = useState(false)
+  const [colorsOn, setColorsOn] = useState(true) // off = skeleton only, no fills beneath
   const [ink, setInk] = useState<InkMode>('light')
   const [annotate, setAnnotate] = useState(true)
   const [textOn, setTextOn] = useState(true)
@@ -251,6 +253,7 @@ export function Studio() {
         palette={palette}
         grid={grid}
         revealOn={revealOn}
+        colorsOn={colorsOn}
         ink={ink}
         annotate={annotate}
         textOn={textOn}
@@ -271,6 +274,7 @@ export function Studio() {
         onRedo={redo}
         onReBisect={onReBisect}
         onToggleReveal={() => setRevealOn((v) => !v)}
+        onToggleColors={() => setColorsOn((v) => !v)}
         onInk={setInk}
         onToggleAnnotate={() => setAnnotate((v) => !v)}
         onToggleText={() => setTextOn((v) => !v)}
@@ -294,11 +298,29 @@ export function Studio() {
             (() => {
               const { w, h } = fitBox(size, grid.aspect)
               return (
-                <div style={{ position: 'relative', width: w, height: h }}>
-                  <div style={{ boxShadow: '0 24px 80px rgba(0,0,0,0.32)' }}>
-                    <CompositionSvg composition={composition} grid={grid} size={size} aspect={grid.aspect} />
+                // a wrapping row: the composition with the key at its right; on narrow stages the
+                // key wraps underneath instead of overlapping or clipping
+                <div
+                  style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    justifyContent: 'center',
+                    alignItems: 'flex-start',
+                    gap: 18,
+                  }}
+                >
+                  <div style={{ position: 'relative', width: w, height: h }}>
+                    <div style={{ boxShadow: '0 24px 80px rgba(0,0,0,0.32)' }}>
+                      {colorsOn ? (
+                        <CompositionSvg composition={composition} grid={grid} size={size} aspect={grid.aspect} />
+                      ) : (
+                        // colors off: a bare board so the skeleton reads alone
+                        <div style={{ width: w, height: h, background: 'rgba(0,0,0,0.14)', border: `1px solid rgba(244,240,232,0.18)`, boxSizing: 'border-box' }} />
+                      )}
+                    </div>
+                    <SkeletonReveal grid={grid} size={size} aspect={grid.aspect} show={revealOn || !colorsOn} ink={inkHex} />
                   </div>
-                  <SkeletonReveal grid={grid} size={size} aspect={grid.aspect} show={revealOn} ink={inkHex} />
+                  <CompositionKey palette={palette} grid={grid} seed={seed} maxHeight={h} />
                 </div>
               )
             })()
