@@ -9,7 +9,7 @@ const LINKS: { to: string; label: string }[] = [
 ]
 
 /**
- * A tiny fixed corner nav between the three surfaces. Mono, hairline, restrained — present
+ * A tiny fixed corner nav between the three surfaces. Mono, hairline, restrained: present
  * but quiet, so it never competes with the hero or the composition. The current route reads
  * at full opacity; the rest sit back.
  *
@@ -48,7 +48,7 @@ export function CornerNav({ tone = 'light' }: { tone?: 'light' | 'dark' }) {
         return (
           <span key={l.to} style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
             {i > 0 && (
-              <span aria-hidden style={{ width: 10, height: 1, background: ink, opacity: 0.3 }} />
+              <span aria-hidden style={{ opacity: 0.3 }}>·</span>
             )}
             <Link
               to={l.to}

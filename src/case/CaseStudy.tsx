@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { CornerNav } from '../app/CornerNav'
+import { RainbowText, NatureWord } from '../components/colorWords'
 import { SECTIONS, TITLE, type Section } from './content'
 import { SubdivisionFigure } from './figures/SubdivisionFigure'
 import { GoldenFigure } from './figures/GoldenFigure'
@@ -14,7 +15,7 @@ const HAIR_CREAM = 'rgba(244,240,232,0.18)'
 
 /** Figures that render immediately after a given section's prose. */
 const FIGURES_AFTER: Record<string, React.FC[]> = {
-  math: [SubdivisionFigure, GoldenFigure, ModularFigure],
+  grid: [SubdivisionFigure, GoldenFigure, ModularFigure],
   craft: [MeasureFigure],
 }
 
@@ -69,9 +70,7 @@ function Title() {
         style={{
           fontFamily: 'var(--font-mono)',
           fontSize: 11,
-          letterSpacing: '0.2em',
-          textTransform: 'uppercase',
-          color: CREAM,
+          letterSpacing: '0.2em',          color: CREAM,
           opacity: 0.55,
           marginBottom: 28,
         }}
@@ -103,17 +102,14 @@ function Title() {
       >
         {TITLE.standfirst}
       </p>
-      <div
-        style={{
-          marginTop: 24,
-          fontFamily: 'var(--font-mono)',
-          fontSize: 11.5,
-          letterSpacing: '0.06em',
-          color: CREAM,
-          opacity: 0.5,
-        }}
-      >
-        {TITLE.byline}
+      <div style={{ marginTop: 24, fontFamily: 'var(--font-mono)', fontSize: 11.5, letterSpacing: '0.06em' }}>
+        <span style={{ color: CREAM, opacity: 0.5 }}>designed and built by </span>
+        <RainbowText text={TITLE.byline} />
+      </div>
+      <div style={{ marginTop: 8, fontFamily: 'var(--font-mono)', fontSize: 11.5, letterSpacing: '0.06em' }}>
+        <span style={{ color: CREAM, opacity: 0.5 }}>looking to </span>
+        <NatureWord>nature</NatureWord>
+        <span style={{ color: CREAM, opacity: 0.5 }}> for answers</span>
       </div>
     </header>
   )
@@ -129,9 +125,7 @@ function Prose({ section }: { section: Section }) {
         style={{
           fontFamily: 'var(--font-mono)',
           fontSize: 11,
-          letterSpacing: '0.18em',
-          textTransform: 'uppercase',
-          color: STEEL_ON_SLATE,
+          letterSpacing: '0.18em',          color: STEEL_ON_SLATE,
           marginBottom: 16,
         }}
       >
@@ -183,8 +177,8 @@ function CloseLinks() {
         gap: 16,
       }}
     >
-      <CloseLink to="/studio" label="Open the studio" hint="generate · bisect · export" primary />
-      <CloseLink to="/" label="Back to the hero" hint="move the cursor" />
+      <CloseLink to="/studio" label="open the studio" hint="generate · bisect · export" primary />
+      <CloseLink to="/" label="back to the hero" hint="move the cursor" />
     </div>
   )
 }
@@ -223,9 +217,7 @@ function CloseLink({
         style={{
           fontFamily: 'var(--font-mono)',
           fontSize: 11,
-          letterSpacing: '0.12em',
-          textTransform: 'uppercase',
-          opacity: primary ? 0.7 : 0.5,
+          letterSpacing: '0.12em',          opacity: primary ? 0.7 : 0.5,
         }}
       >
         {hint}

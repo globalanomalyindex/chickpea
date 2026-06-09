@@ -1,7 +1,8 @@
 /**
- * The case-study narrative — the single source of the page copy. Sections render in order;
- * the figures are interleaved by id in CaseStudy.tsx. Kept here so the writing can be edited
- * without touching layout.
+ * The case-study narrative: the single source of the page copy. Sections render in order; figures
+ * are interleaved by id in CaseStudy.tsx. Kept here so the writing can be edited without touching
+ * layout. Lowercase throughout (the wordmark "Chickpea" and the rainbow name are the exceptions,
+ * rendered in CaseStudy.tsx). No em-dashes in the prose.
  */
 
 export interface Section {
@@ -17,75 +18,75 @@ export interface Section {
 
 export const TITLE = {
   /** the big display line. */
-  display: 'Making the grid visible.',
+  display: 'grown, not drawn.',
   /** the mono subtitle. */
-  subtitle: 'Chickpea — a generative grid studio',
+  subtitle: 'chickpea · a generative grid + color studio',
   /** a one-line stand-first under the title. */
   standfirst:
-    'A tool that generates grids which are always mathematically correct — and that will draw you the math behind any one of them.',
-  byline: 'Christopher Robin Fiore',
+    'two engines that make endless, never-repeating compositions which are always mathematically perfect and always look good, then draw you the math behind any one of them. built by noticing that nature had already solved the same problems.',
+  /** rendered as a per-letter rainbow in CaseStudy.tsx. */
+  byline: 'christopher robin fiore',
 }
 
 export const SECTIONS: Section[] = [
   {
-    id: 'problem',
-    eyebrow: 'The problem',
-    heading: 'The grid is the one system designers never see.',
+    id: 'thesis',
+    eyebrow: 'the thesis',
+    heading: 'nature solved color and structure first. so the move was to ask it.',
     body: [
-      'Every page, poster, and screen sits on a grid — the proportions, the columns, the spacing that decide where everything lands. It is the most load-bearing decision in a layout and the most invisible. Designers internalize it; software hides it.',
-      'Most grid tools draw faint guides and stop there. They give you the scaffolding but not the reasoning — never why this column, why that ratio. The system stays a black box, so it never teaches. You can use a grid your whole career and never be shown one.',
+      'every hard question in this studio has a much older answer. what makes a set of colors feel like they belong together? how do you fill a space so it reads as composed rather than arbitrary? petals, plumage, leaf venation, the spiral of a sunflower head: living things settled these millions of years before a design tool existed. the work was to stop inventing rules and start borrowing the ones that already hold.',
+      'so chickpea is not a folder of presets. it is two generative engines, each grounded in a natural principle, each wrapped in math strict enough that a broken result is impossible, and judged against a quality bar high enough that a boring one almost never ships. a chickpea is round, plain, and quietly well-structured. felt like the right mascot for a grid.',
     ],
   },
   {
-    id: 'idea',
-    eyebrow: 'The idea',
-    heading: 'A grid that is provably correct, and shows its work.',
+    id: 'color',
+    eyebrow: 'the color engine',
+    heading: 'color in the space the eye actually uses.',
     body: [
-      'Chickpea generates compositions on grids that are always mathematically correct, from a library of strategies rooted in real mathematics — recursive subdivision, the golden section, classic Swiss modular lattices. Correct is not a claim here; it is enforced by tests that run on every grid.',
-      'Then it does the thing other tools will not: it reveals its own skeleton. Ratios, modules, and spacing draw themselves as live dimension arrows, in the same visual language across every surface. A composition becomes a teaching object. The tool teaches the system it uses.',
+      'color is not red-green-blue. the eye does not see in channels; it reads lightness, chroma, and hue, and it spaces them perceptually. so the engine lives in oklch, a perceptual color space where an equal step looks like an equal step, and it never lets a color leave the screen’s gamut by clipping a channel, which silently drags hue and lightness with it. it walks chroma down to the boundary instead, the way a real pigment desaturates rather than turning a different color.',
+      'hue is drawn from a mixture of von mises distributions, the circular cousin of the bell curve and the honest tool for a quantity that lives on a wheel. a couple of tight clusters give a monochrome; two opposite ones, a complementary; loosen them and you get the easy disorder of a wildflower verge. nothing is stored. every palette is sampled, scored on eight perceptual measures, and only the best of a whole population is shown, so "always beautiful" is a property of the output, not a wish about the average draw.',
     ],
   },
   {
-    id: 'math',
-    eyebrow: 'The math',
-    heading: 'Three families, each provably correct.',
+    id: 'grid',
+    eyebrow: 'the grid engine',
+    heading: 'a grid that cannot be wrong, because of how it is grown.',
     body: [
-      'The engine is a small set of pure functions — give one a seed and it returns a grid, the same grid, every time. Three families cover the territory between rational order and organic proportion. Each figure below is the real generator, running live; drag it.',
+      'a leaf does not lay out a grid and then check it for gaps; it divides, and division cannot leave a gap. the grid engine grows the same way. it only ever cuts an existing rectangle the whole way across, so every composition is a perfect tiling: zero gaps, zero overlaps, every shared edge exact, not because a test happened to pass but because no other outcome is reachable. correctness is structural here, the way it is in a honeycomb.',
+      'the cuts land on the proportions nature keeps reusing: halves, thirds, the golden section that sets the turn of a pine cone and the seed spiral of that sunflower. then the same quality search as the color engine sifts a population of candidates and emits the one that reads as designed. three dials (complexity, tension, rhythm) lean the search without ever breaking it; everything else is the seed. flip on reveal-math and a composition will export its own skeleton as a transparent png, lines always, annotations optional.',
     ],
   },
   {
-    id: 'bisection',
-    eyebrow: 'Human intent in, math out',
-    heading: 'Your rough cuts, perfected into infinite variations.',
+    id: 'reveal',
+    eyebrow: 'the product idea',
+    heading: 'a tool that teaches the system it is using.',
     body: [
-      'A grid from nothing is a starting point. A grid from your own image is a conversation. Drop a photograph and bisect it with quick, imprecise cuts — enter from the top edge for a vertical slice, from the side for a horizontal one, click to drop.',
-      'Chickpea snaps those human cuts to the nearest ratio-correct anchors, then generates endlessly around them. Your composition stays yours; the math underneath it becomes flawless. Rough intent in, an infinite family of mathematically-perfect variations out.',
+      'the grid is the most load-bearing decision in any layout and the most invisible: internalized by designers, hidden by software. most tools draw a few faint guides and stop, handing you scaffolding but never the reasoning. chickpea does the thing they will not. it reveals its own skeleton: ratios, modules, and spacing draw themselves as live dimension arrows, truthfully labelled, so a golden cut reads "1/φ" and never a rounded decimal that lies about what it is. the composition becomes a thing you can learn from, not just look at.',
     ],
   },
   {
     id: 'craft',
-    eyebrow: 'The craft',
-    heading: 'Swiss-rational, but alive.',
+    eyebrow: 'the craft',
+    heading: 'swiss-rational at rest, alive on contact.',
     body: [
-      'The landing hero is pixel-faithful to its Figma at rest — exact positions, exact tracking, the three palette colors — and renders fully without JavaScript. The truthful composition is always the fallback. Then a cursor layer brings it to life.',
-      'Move across it and the nearest seam spring-separates, exposing a gap and measuring it with a dimension arrow. Springs, not eased curves, give the letters apparent mass — the quality that reads as alive rather than merely animated. The whole thing honors reduced-motion: the measurement still appears, the motion bows out.',
+      'the landing is pixel-faithful to its figma at rest and renders completely without javascript: the truthful, static composition is always the fallback. then a cursor layer brings it to life. move across the title and the nearest seam spring-separates, opening a gap and measuring it. springs, not eased curves, give the letters apparent mass, which is the small thing that reads as alive rather than merely animated. honor reduced-motion and the measurement still appears; only the movement bows out.',
     ],
   },
   {
     id: 'engineering',
-    eyebrow: 'The engineering',
-    heading: 'Pure generators, enforced invariants, shareable seeds.',
+    eyebrow: 'the engineering',
+    heading: 'pure functions, enforced invariants, shareable seeds.',
     body: [
-      'The grid math has no idea React exists. Every generator is a pure, seeded function with no UI imports, which makes it directly testable — and tested it is. An invariant suite checks that tiling generators cover the canvas with zero gaps and zero overlaps, that every guide and module stays in bounds, that modular edges align to the lattice, and that each ratio label matches the proportion it measured.',
-      'Determinism is also the sharing mechanism: a seed in the URL is a reproducible composition, and the figures on this page are built out of the same engine the studio ships — live, not screenshots. Design, grid math, interaction, tests, and deploy: one person, end to end, in React and TypeScript.',
+      'every generator is a pure, seeded function that has never heard of react. give it a seed and a few dials and it returns the same composition forever. that purity is what makes it testable, and tested it is: an invariant suite proves the tiling covers the canvas with zero gaps, that every guide sits bit-exactly on a module edge, that each ratio label matches the proportion it measured. around two hundred tests guard it, and the figures on this page are the real engine running live, not screenshots; a seed in the url is a reproducible composition you can share.',
+      'the design and the engineering are one job here: perceptual color theory, circular statistics, computational geometry, interaction craft, and the test suite that keeps them honest, one person end to end in react and typescript. the genuinely hard calls (which scoring terms to trust, how to stop the search collapsing onto a single safe grid) were not reasoned out in the abstract. they were made by building it, measuring five hundred seeds at a time, and believing the data over the theory when the two disagreed.',
     ],
   },
   {
     id: 'close',
-    eyebrow: 'See it run',
-    heading: 'Open the studio, or watch the hero come apart.',
+    eyebrow: 'see it run',
+    heading: 'open the studio. break the hero. read the math.',
     body: [
-      'The case for a grid you can see the math behind is best made by using one. Generate from scratch, bisect an image, toggle the reveal, export the result — or go back to the hero and move your cursor across the title.',
+      'the case for a system you can see the math behind is best made by using one. generate from scratch, drag the dials, toggle the reveal, export a transparent skeleton, or go back to the hero and pull the title apart with your cursor.',
     ],
   },
 ]

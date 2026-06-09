@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
+import { RainbowText } from '../components/colorWords'
 
 /*
  * The studio's in-brand navigation: a bottom-left wordmark that doubles as a drop-up menu.
@@ -8,7 +9,6 @@ import { Link, useLocation } from 'react-router-dom'
  * Mafinest, tight tracking, the green/steel chip palette from the Figma blocking (node 35:3).
  */
 
-const CREAM = '#f4f0e8'
 const CHIP = '#313131'
 const SELECTED = '#8d9a7a' // the current surface
 const HOVER = '#aeb89a' // the word under the pointer
@@ -77,8 +77,9 @@ export function BrandMenu() {
         letterSpacing: '-0.06em',
       }}
     >
-      <Link to="/" style={{ color: CREAM, textDecoration: 'none', paddingBottom: 4 }}>
-        Chickpea
+      {/* the wordmark wears the generator's own colors: a per-letter perceptual rainbow */}
+      <Link to="/" aria-label="Chickpea" style={{ textDecoration: 'none', paddingBottom: 4 }}>
+        <RainbowText text="Chickpea" l={0.72} c={0.15} />
       </Link>
       <span style={{ position: 'relative', display: 'inline-block' }}>
         {/* the other surfaces, drop-UP from the anchor (nearest sits just above it) */}
