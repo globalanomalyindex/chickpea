@@ -17,7 +17,7 @@ body {
  */
 html, body { cursor: url('/cursors/arrow.png') 0 0, auto; }
 a, button, [role='button'], summary, label[for], select,
-[data-word], [data-block] { cursor: url('/cursors/hand.png') 7 0, pointer; }
+[data-word], [data-block] { cursor: url('/cursors/hand.png') 6 0, pointer; }
 /* The surface menu (hero / studio / case) keeps the plain arrow — only the studio '→' on the
  * hero earns the pointing hand, so the hand stays a deliberate signal. */
 nav[aria-label='Surfaces'] a { cursor: url('/cursors/arrow.png') 0 0, auto; }
