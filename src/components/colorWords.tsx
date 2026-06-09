@@ -10,6 +10,13 @@
 
 const clampL = (l: number): number => (l < 0 ? 0 : l > 0.97 ? 0.97 : l)
 
+/** The per-letter rainbow color: hue = (i / (total-1)) * sweep, at a fixed L/C. Exported so the hero
+ * can color a name that spans several independently-movable word spans with one continuous sweep. */
+export function rainbowColor(i: number, total: number, l = 0.72, c = 0.16, sweep = 320): string {
+  const last = Math.max(1, total - 1)
+  return `oklch(${clampL(l)} ${c} ${Math.round((i / last) * sweep)})`
+}
+
 /**
  * The name rainbow: hue sweeps 0 -> `sweep` across the letters at a fixed L/C, exactly the effect
  * from the sister project. Spaces are preserved but uncolored; the hue index counts every character
@@ -84,7 +91,7 @@ const lerpHue = (a: number, b: number, t: number): number => {
 }
 
 /** `n` solid OKLCH colors stepped across the kind's ramp, one per letter; `lighten` lifts L for slate. */
-function naturePalette(kind: NatureKind, n: number, lighten = 0): string[] {
+export function naturePalette(kind: NatureKind, n: number, lighten = 0): string[] {
   const stops = PALETTES[kind] ?? PALETTES.nature
   if (n <= 1) return [`oklch(${clampL(stops[0][0] + lighten)} ${stops[0][1]} ${stops[0][2]})`]
   const out: string[] = []

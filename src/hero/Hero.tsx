@@ -4,6 +4,7 @@ import { MorphGrid } from './MorphGrid'
 import { InteractionLayer } from './InteractionLayer'
 import { StudioGlyphLink } from './StudioGlyphLink'
 import { CornerNav } from '../app/CornerNav'
+import { rainbowColor, naturePalette } from '../components/colorWords'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 /** Transient/persisted placement nudge per element id, from its composition origin. */
@@ -31,23 +32,61 @@ function blockStyle(b: TextBlock): React.CSSProperties {
   }
 }
 
+/** Letters of a word, each its own aria-hidden colored span; the data-word span carries the label.
+ * Coloring children leaves the word's box (what the interaction layer measures + moves) unchanged. */
+function coloredLetters(word: string, colorFor: (i: number) => string) {
+  return [...word].map((ch, i) => (
+    <span key={i} aria-hidden style={{ color: colorFor(i) }}>
+      {ch}
+    </span>
+  ))
+}
+
 /**
  * Split a line into words, interleaving real space text nodes so the rendered text is
  * byte-identical to `{line}`. Each word becomes its own reactive `data-word` span.
+ *
+ * Two words wear signature colors, the same letter-by-letter treatment as the case study: the
+ * author's name rides a continuous perceptual rainbow across its (independently movable) words, and
+ * "nature" wears its own greens-gold-sky-earth ramp. Everything else stays the block's cream.
  */
 function renderWords(blockId: string, line: string, lineIdx: number) {
   const words = line.split(' ')
-  return words.map((word, wi) => (
-    <span key={wi}>
-      {wi > 0 ? ' ' : null}
-      <span
-        data-word={`${blockId}-${lineIdx}-${wi}`}
-        style={{ display: 'inline-block', willChange: 'transform' }}
-      >
-        {word}
+
+  // grid-generator line 1 is "by christopher robin fiore": keep "by" cream, sweep the name 0..320.
+  const isName = blockId === 'grid-generator' && lineIdx === 1
+  const nameOffset: number[] = []
+  let nameTotal = 0
+  if (isName) {
+    let off = 0
+    words.forEach((w, wi) => {
+      nameOffset[wi] = off
+      if (wi >= 1) off += w.length
+    })
+    nameTotal = off
+  }
+
+  return words.map((word, wi) => {
+    let content: React.ReactNode = word
+    if (isName && wi >= 1) {
+      content = coloredLetters(word, (i) => rainbowColor(nameOffset[wi] + i, nameTotal))
+    } else if (blockId === 'portfolio' && lineIdx === 1 && word === 'nature') {
+      const colors = naturePalette('nature', word.length, 0.16)
+      content = coloredLetters(word, (i) => colors[i])
+    }
+    return (
+      <span key={wi}>
+        {wi > 0 ? ' ' : null}
+        <span
+          data-word={`${blockId}-${lineIdx}-${wi}`}
+          aria-label={content === word ? undefined : word}
+          style={{ display: 'inline-block', willChange: 'transform' }}
+        >
+          {content}
+        </span>
       </span>
-    </span>
-  ))
+    )
+  })
 }
 
 export function Hero() {
