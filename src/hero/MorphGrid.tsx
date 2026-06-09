@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { generate, GENERATOR_KINDS } from '../grid/generators'
+import { composeGrid } from '../grid/compose'
 import type { Grid } from '../grid/types'
 import { ARTBOARD, HERO_COLORS } from './heroLayout'
 
@@ -47,7 +47,16 @@ export interface MorphGridProps {
   activityRef: React.MutableRefObject<number>
   /** Live artboard-space cursor point (or null when the pointer has left the stage). */
   cursorRef: React.MutableRefObject<{ x: number; y: number } | null>
+  /** Live placed word/block boxes (artboard px) — the grid anchors its columns to these so it
+   * always reflects (and works with) the CURRENT composition, not the resting one. */
+  compositionRef: React.MutableRefObject<{ x: number; y: number; w: number; h: number }[]>
+  /** Bumped when the composition changes — the loop watches it to re-derive a fresh, valid grid
+   * that fits the new arrangement (the field "re-breathes" when you move a word). */
+  compositionVersion: React.MutableRefObject<number>
 }
+
+/** Most module frames to trace (the largest by area) — keep the field layered, never busy. */
+const MODULE_DRAW_CAP = 7
 
 /** Render one engine grid's guides + a few module frames into a `<g>`, in artboard px. */
 function paintGrid(group: SVGGElement, grid: Grid) {
@@ -77,8 +86,10 @@ function paintGrid(group: SVGGElement, grid: Grid) {
     else line(0, g.pos * H, W, g.pos * H, 0.9)
   }
 
-  // A few module frames trace the recursion — fainter, so the field reads layered, not busy.
-  for (const m of grid.modules) {
+  // A few module frames trace the structure — fainter, so the field reads layered, not busy.
+  // Cap to the largest cells so a finely-tiled composed grid never floods the field with rects.
+  const frames = [...grid.modules].sort((a, b) => b.w * b.h - a.w * a.h).slice(0, MODULE_DRAW_CAP)
+  for (const m of frames) {
     const x = m.x * W
     const y = m.y * H
     const w = m.w * W
@@ -97,7 +108,12 @@ function paintGrid(group: SVGGElement, grid: Grid) {
   }
 }
 
-export function MorphGrid({ activityRef, cursorRef }: MorphGridProps) {
+export function MorphGrid({
+  activityRef,
+  cursorRef,
+  compositionRef,
+  compositionVersion,
+}: MorphGridProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   const fieldRef = useRef<HTMLDivElement>(null)
   const spotRef = useRef<HTMLDivElement>(null)
@@ -120,12 +136,11 @@ export function MorphGrid({ activityRef, cursorRef }: MorphGridProps) {
     reduceMq.addEventListener('change', onReduce)
 
     // Seeds come from a monotonic counter (never Math.random) so morphs are stable & varied.
+    // Every grid is COMPOSED from the live composition — its columns snap to where the words are
+    // now, so the field always reflects the current arrangement and is always a valid tiling.
     let seedCounter = 1
-    const nextGrid = (): Grid => {
-      const tag = seedCounter++
-      const kind = GENERATOR_KINDS[tag % GENERATOR_KINDS.length]
-      return generate(kind, tag * 0x1f1f1f + 7)
-    }
+    const nextGrid = (): Grid =>
+      composeGrid(seedCounter++, compositionRef.current, ARTBOARD.w, BLOOM_MAX_Y)
 
     // Two crossfade layers: `front` is fully visible, `back` is staged for the next morph.
     const groups: SVGGElement[] = [gA, gB]
@@ -144,6 +159,8 @@ export function MorphGrid({ activityRef, cursorRef }: MorphGridProps) {
     let morphStart = -1
     // Seed lastMorph to "now" so the first grid lingers a full period before the first morph.
     let lastMorph = performance.now()
+    // Last composition version we've reflected; when it changes we re-derive a fitting grid.
+    let seenVersion = compositionVersion.current
     // Decorative drift of the front layer (a slow parallax wander while active).
     let driftPhase = 0
 
@@ -197,8 +214,12 @@ export function MorphGrid({ activityRef, cursorRef }: MorphGridProps) {
         const front = groups[frontIdx]
         const back = groups[1 - frontIdx]
 
-        if (morphStart < 0 && activity > 0.04 && now - lastMorph > MORPH_PERIOD) {
-          beginMorph(now)
+        // Re-derive when the composition changed (re-breathe on a move), or on the idle cadence.
+        if (morphStart < 0) {
+          const versionChanged = compositionVersion.current !== seenVersion
+          if (versionChanged) seenVersion = compositionVersion.current
+          const periodic = activity > 0.04 && now - lastMorph > MORPH_PERIOD
+          if (versionChanged || periodic) beginMorph(now)
         }
 
         if (morphStart >= 0) {
@@ -224,8 +245,16 @@ export function MorphGrid({ activityRef, cursorRef }: MorphGridProps) {
         const scale = 1 + 0.012 * bloom
         field.style.transform = `translate(${dx.toFixed(2)}px, ${dy.toFixed(2)}px) scale(${scale.toFixed(4)})`
       } else {
+        // Reduced motion: no crossfade/drift, but still keep the grid faithful to the composition
+        // by swapping instantly (never animated) when the arrangement changes.
         field.style.transform = 'none'
         field.style.filter = 'none'
+        if (compositionVersion.current !== seenVersion) {
+          seenVersion = compositionVersion.current
+          paintGrid(groups[frontIdx], nextGrid())
+          groups[frontIdx].style.opacity = '1'
+          groups[1 - frontIdx].style.opacity = '0'
+        }
       }
     }
 

@@ -1,68 +1,54 @@
 import { useEffect, useRef } from 'react'
 import { clientToStage, type Stage } from './stageScale'
-import {
-  buildMeasurements,
-  selectMeasurements,
-  cursorRelevance,
-  elementOffsets,
-  type Box,
-} from './measurements'
-import {
-  resolveLabelCollisions,
-  crossesAny,
-  preventOverlap,
-  type Rect,
-} from './collision'
+import { buildMeasurements, selectMeasurements, cursorRelevance, type Box } from './measurements'
+import { relax, restOverlapPairs, layoutLabels, crossesAny, type Rect, type SolverBox } from './collision'
 import { ARTBOARD, HERO_COLORS } from './heroLayout'
-import {
-  measureBoxes,
-  queryReactiveEls,
-  type PlacementMap,
-} from './heroDom'
+import { measureBoxes, queryReactiveEls, type PlacementMap } from './heroDom'
 
 /**
  * InteractionLayer — the single, unified, buttery interaction engine for the hero.
  *
- * Replaces MeasureLayer + DragLayer. ONE React mount, ONE imperative `requestAnimationFrame`
- * loop, ZERO React state in the hot path (everything is refs + direct DOM writes), and ZERO
- * per-frame layout reads (resting boxes are cached on mount / ResizeObserver / after a
- * placement change — never via `getBoundingClientRect` inside the loop).
+ * ONE React mount, ONE imperative `requestAnimationFrame` loop, ZERO React state in the hot path
+ * (refs + direct DOM writes), ZERO per-frame layout reads (resting boxes are cached on mount /
+ * ResizeObserver / placement change).
+ *
+ * The whole system is built on ONE global guarantee: **nothing ever overlaps**. A single cascading
+ * relaxation solver (`relax`) resolves overlaps among the movable "push-units" (the non-title words
+ * + the title as one block); the SAME idea (`layoutLabels`) keeps every number clear of every word,
+ * letter, arrowhead and other number. Push always PROPAGATES down the chain.
  *
  * One mode, no toggle:
- *  - HOVER measures: `selectMeasurements` over the cached boxes lights up cursor-tracked
- *    dimension arrows; nearby elements spring apart by a transient nudge (lerped each frame),
- *    clamped by `preventOverlap` so words never overlap (corrected ones get a small ≠ tick).
- *  - DRAG (pointerdown on a [data-word]/[data-block]) moves the element 1:1 with snap (the
- *    DragLayer snap math, against the cached boxes), drawing live border/neighbor/guide
- *    annotations; pointerup commits the placement (the only setState — rare) and remeasures.
+ *  - HOVER measures: the title separates with a continuous *split-and-spread* (preserving kerning,
+ *    no jitter); words/blocks separate + cascade via `relax`; cursor-tracked dimension arrows light
+ *    up with numbers that never collide with anything.
+ *  - DRAG (pointerdown on a word / the title): the grabbed unit is PINNED to the cursor and every
+ *    other unit moves out of its way down the chain; release commits the resolved cascade so the
+ *    composition stays overlap-free and keeps evolving.
  *
- * emil law, strictly:
- *  - Only `transform` / `opacity` animate. Arrows track the cursor 1:1 via `transform` set
- *    each frame with NO transition; only `opacity` transitions (150ms) for appear/disappear.
- *  - Instant response to input (pointer ref read live every frame).
- *  - Springs ONLY for the decorative element nudges (lerp toward target ≈ a critically-damped
- *    spring) and the MorphGrid bloom (driven via `activityRef`).
- *  - `prefers-reduced-motion`: nudges snap to 0 (no spring), no morph (activity forced to 0),
- *    arrows still render statically at the measurement. Subscribes to the mediaquery `change`.
+ * emil law: only `transform`/`opacity` animate; arrows track the cursor 1:1 via `transform` with no
+ * transition; springs (a per-frame lerp) only for the decorative element nudges; `prefers-reduced-
+ * motion` snaps nudges to 0 and renders arrows statically.
  */
 
 /** Cursor proximity radius (artboard px) within which a measurement lights up. */
 const RADIUS = 150
-/** Transient separation amount (artboard px) applied to nudged elements at full strength. */
-const DELTA = 26
-/** Calm, not chaotic: never more than this many hover measurements (arrows) at once. */
-const MAX_COUNT = 4
-/** Skip margins larger than this (artboard px): a far-from-border word's huge margin arrow
- * would span most of the page — overwhelming, not informative. Only tight breathing-room
- * margins surface; the big negative space belongs to the MorphGrid bloom. */
+/** Separation amount (artboard px) applied at full strength. */
+const DELTA = 24
+/** Calm + legible: never annotate more than this many measurements at once. */
+const MAX_HOVER = 3
+/** Skip margins larger than this (artboard px) — the big negative space belongs to the MorphGrid. */
 const MAX_MARGIN = 240
 /** Per-frame lerp for the element-nudge springs (snappy; settles ~8 frames). */
-const LERP = 0.22
-/** Arrow fade in/out (opacity only). emil's easeOutQuint for a soft, expensive settle. */
+const LERP = 0.24
+/** Breathing room (artboard px) kept between any two boxes the solver separates. */
+const PAD = 4
+/** Min nudge magnitude (artboard px) before a bounced element earns a dotted "ghost" mark. */
+const GHOST_MIN = 6
+/** Arrow / label fade in-out (opacity only). emil's easeOutQuint for a soft, expensive settle. */
 const FADE = 'opacity 150ms cubic-bezier(0.23,1,0.32,1)'
 
-/** Fixed pool size — gap + margin arrows during hover, border + neighbor + guide during drag. */
-const POOL = 9
+/** Generous fixed pool — arrow lines, detached number labels, ghosts and drag guides all draw from it. */
+const POOL = 24
 
 /** Snap when a dragged edge/center comes within this many artboard px of a target line. */
 const SNAP = 6
@@ -80,7 +66,11 @@ const ACTIVITY_DECAY = 0.08
 
 const NS = 'http://www.w3.org/2000/svg'
 const HEAD = 5
-const TICK = 4
+const CAP = 3
+
+function clamp(v: number, lo: number, hi: number): number {
+  return v < lo ? lo : v > hi ? hi : v
+}
 
 interface Props {
   stage: Stage
@@ -91,36 +81,58 @@ interface Props {
   activityRef: React.MutableRefObject<number>
   /** Live artboard-space cursor (or null off-stage) the MorphGrid spotlight reads. */
   cursorRef: React.MutableRefObject<{ x: number; y: number } | null>
+  /** Live placed word/block boxes (artboard px) the MorphGrid anchors its grid to. */
+  compositionRef: React.MutableRefObject<Rect[]>
+  /** Bumped whenever the composition changes (placement commit / resize). */
+  compositionVersion: React.MutableRefObject<number>
 }
 
-/** A pooled SVG arrow/guide element with handles to its mutable nodes (built once, mutated each frame). */
+/** A pooled SVG element with handles to its mutable nodes (built once, mutated each frame). */
 interface PoolSlot {
-  root: HTMLDivElement // positioned wrapper (transform set each frame, no transition)
+  root: HTMLDivElement
   svg: SVGSVGElement
-  // dimension-arrow primitives
   line: SVGLineElement
   head1: SVGPolylineElement
   head2: SVGPolylineElement
   text: SVGTextElement
-  // guide primitives (dashed full-span line + 2 end ticks)
+  // dashed line + 2 end ticks: doubles as the drag guide (full-span) and the ghost (short segment)
   guide: SVGLineElement
   tickA: SVGLineElement
   tickB: SVGLineElement
-  // correction ≠ mark (two short parallel ticks)
-  corrA: SVGLineElement
-  corrB: SVGLineElement
 }
 
-/** A single drawing instruction the loop assigns to a pool slot. */
+/** A drawing instruction the loop assigns to a pool slot. Numbers are DETACHED from arrow lines so
+ * they can be relocated freely to avoid every overlap. */
 type Draw =
-  | { kind: 'arrow'; orientation: 'h' | 'v'; x: number; y: number; length: number; label: string; opacity: number }
+  | { kind: 'arrowline'; orientation: 'h' | 'v'; x: number; y: number; length: number; opacity: number }
+  | { kind: 'label'; x: number; y: number; text: string; opacity: number }
   | { kind: 'guide'; orientation: 'h' | 'v'; pos: number; opacity: number }
-  | { kind: 'correction'; x: number; y: number; orientation: 'h' | 'v'; opacity: number }
+  | { kind: 'ghost'; x1: number; y1: number; x2: number; y2: number; opacity: number }
 
-export function InteractionLayer({ stage, stageRef, placement, setPlacement, activityRef, cursorRef }: Props) {
+interface DragState {
+  id: string
+  origin: Box // placed box at drag start
+  basePlace: { dx: number; dy: number }
+  startPt: { x: number; y: number }
+  dx: number
+  dy: number
+  guides: { axis: 'v' | 'h'; pos: number }[]
+  moved: boolean
+  resolvedOthers: Map<string, { dx: number; dy: number }>
+}
+
+export function InteractionLayer({
+  stage,
+  stageRef,
+  placement,
+  setPlacement,
+  activityRef,
+  cursorRef,
+  compositionRef,
+  compositionVersion,
+}: Props) {
   const poolWrapRef = useRef<HTMLDivElement>(null)
 
-  // --- live refs (no React state in the hot path) ---
   const stageR = useRef(stage)
   stageR.current = stage
   const placementR = useRef(placement)
@@ -134,25 +146,15 @@ export function InteractionLayer({ stage, stageRef, placement, setPlacement, act
   const nudge = useRef<Map<string, { dx: number; dy: number }>>(new Map())
   const reduced = useRef(false)
   const pool = useRef<PoolSlot[]>([])
-
-  interface DragState {
-    id: string
-    origin: Box // resting box at drag start (real on-screen artboard space)
-    basePlace: { dx: number; dy: number }
-    startPt: { x: number; y: number }
-    others: Box[]
-    dx: number
-    dy: number
-    guides: { axis: 'v' | 'h'; pos: number }[]
-    moved: boolean
-  }
   const drag = useRef<DragState | null>(null)
 
-  // --- build the arrow pool once (refs into raw SVG so the loop never re-renders React) ---
+  // --- build the pool once (refs into raw SVG so the loop never re-renders React) ---
   useEffect(() => {
     const wrap = poolWrapRef.current
     if (!wrap) return
     const slots: PoolSlot[] = []
+    const c = HERO_COLORS.cream
+    const mk = <T extends SVGElement>(tag: string): T => document.createElementNS(NS, tag) as unknown as T
     for (let i = 0; i < POOL; i++) {
       const root = document.createElement('div')
       root.style.position = 'absolute'
@@ -169,9 +171,6 @@ export function InteractionLayer({ stage, stageRef, placement, setPlacement, act
       svg.setAttribute('width', '0')
       svg.setAttribute('height', '0')
 
-      const c = HERO_COLORS.cream
-      const mk = <T extends SVGElement>(tag: string): T => document.createElementNS(NS, tag) as unknown as T
-
       const line = mk<SVGLineElement>('line')
       line.setAttribute('stroke', c)
       line.setAttribute('stroke-width', '1.5')
@@ -187,11 +186,9 @@ export function InteractionLayer({ stage, stageRef, placement, setPlacement, act
       text.setAttribute('font-size', '11')
       text.setAttribute('fill', c)
 
-      // guide line (dashed full-span) + 2 end ticks
       const guide = mk<SVGLineElement>('line')
       guide.setAttribute('stroke', c)
       guide.setAttribute('stroke-width', '1')
-      guide.setAttribute('stroke-dasharray', '3 3')
       const tickA = mk<SVGLineElement>('line')
       const tickB = mk<SVGLineElement>('line')
       for (const t of [tickA, tickB]) {
@@ -199,18 +196,10 @@ export function InteractionLayer({ stage, stageRef, placement, setPlacement, act
         t.setAttribute('stroke-width', '1')
       }
 
-      // ≠ correction mark: two short parallel ticks at a corrected element's edge
-      const corrA = mk<SVGLineElement>('line')
-      const corrB = mk<SVGLineElement>('line')
-      for (const m of [corrA, corrB]) {
-        m.setAttribute('stroke', c)
-        m.setAttribute('stroke-width', '1.5')
-      }
-
-      svg.append(line, head1, head2, text, guide, tickA, tickB, corrA, corrB)
+      svg.append(line, head1, head2, text, guide, tickA, tickB)
       root.appendChild(svg)
       wrap.appendChild(root)
-      slots.push({ root, svg, line, head1, head2, text, guide, tickA, tickB, corrA, corrB })
+      slots.push({ root, svg, line, head1, head2, text, guide, tickA, tickB })
     }
     pool.current = slots
     return () => {
@@ -230,7 +219,7 @@ export function InteractionLayer({ stage, stageRef, placement, setPlacement, act
     return () => mq.removeEventListener('change', onChange)
   }, [])
 
-  // --- remeasure: cache resting boxes (mount + ResizeObserver + after placement change) ---
+  // --- remeasure: cache resting boxes + publish the placed composition (NOT per frame) ---
   useEffect(() => {
     const root = stageRef.current
     if (!root) return
@@ -238,13 +227,20 @@ export function InteractionLayer({ stage, stageRef, placement, setPlacement, act
       const r = stageRef.current
       if (!r) return
       boxes.current = measureBoxes(r, stageR.current, applied.current)
+      const place = placementR.current
+      compositionRef.current = boxes.current
+        .filter((b) => b.kind === 'word' || b.kind === 'block')
+        .map((b) => {
+          const pl = place[b.id] ?? { dx: 0, dy: 0 }
+          return { x: b.x + pl.dx, y: b.y + pl.dy, w: b.w, h: b.h }
+        })
+      compositionVersion.current += 1
     }
     remeasure()
     const ro = new ResizeObserver(remeasure)
     ro.observe(root)
     return () => ro.disconnect()
-    // remeasure when stage scale or committed placement changes (NOT per frame).
-  }, [stageRef, stage, placement])
+  }, [stageRef, stage, placement, compositionRef, compositionVersion])
 
   // --- pointer + drag listeners (write refs only; setPlacement only on commit) ---
   useEffect(() => {
@@ -256,58 +252,6 @@ export function InteractionLayer({ stage, stageRef, placement, setPlacement, act
       pointer.current.x = p.x
       pointer.current.y = p.y
       pointer.current.active = true
-      const d = drag.current
-      if (d) {
-        let dx = p.x - d.startPt.x
-        let dy = p.y - d.startPt.y
-        const lx = d.origin.x + dx
-        const ly = d.origin.y + dy
-        const w = d.origin.w
-        const h = d.origin.h
-
-        const xTargets = [...KEY_X]
-        const yTargets = [...KEY_Y]
-        for (const o of d.others) {
-          xTargets.push(o.x, o.x + o.w / 2, o.x + o.w)
-          yTargets.push(o.y, o.y + o.h / 2, o.y + o.h)
-        }
-        const guides: { axis: 'v' | 'h'; pos: number }[] = []
-
-        const xEdges = [lx, lx + w / 2, lx + w]
-        let bestX: { adjust: number; line: number } | null = null
-        for (const edge of xEdges) {
-          for (const t of xTargets) {
-            const diff = t - edge
-            if (Math.abs(diff) <= SNAP && (!bestX || Math.abs(diff) < Math.abs(bestX.adjust))) {
-              bestX = { adjust: diff, line: t }
-            }
-          }
-        }
-        if (bestX) {
-          dx += bestX.adjust
-          guides.push({ axis: 'v', pos: bestX.line })
-        }
-
-        const yEdges = [ly, ly + h / 2, ly + h]
-        let bestY: { adjust: number; line: number } | null = null
-        for (const edge of yEdges) {
-          for (const t of yTargets) {
-            const diff = t - edge
-            if (Math.abs(diff) <= SNAP && (!bestY || Math.abs(diff) < Math.abs(bestY.adjust))) {
-              bestY = { adjust: diff, line: t }
-            }
-          }
-        }
-        if (bestY) {
-          dy += bestY.adjust
-          guides.push({ axis: 'h', pos: bestY.line })
-        }
-
-        d.dx = dx
-        d.dy = dy
-        d.guides = guides
-        if (dx !== 0 || dy !== 0) d.moved = true
-      }
     }
 
     const onLeave = () => {
@@ -321,17 +265,24 @@ export function InteractionLayer({ stage, stageRef, placement, setPlacement, act
       const id = target.dataset.word ?? target.dataset.block
       if (!id) return
       e.preventDefault()
-      const r = stageRef.current
-      if (!r) return
-      // Measure ACTUAL placed positions (empty offset map -> nothing subtracted): origin and
-      // others sit in real on-screen artboard space, the space the drag delta/snap reason in.
-      const live = measureBoxes(r, stageR.current, new Map())
-      const origin = live.find((b) => b.id === id)
-      if (!origin) return
-      const others = live.filter((b) => b.id !== id && (b.kind === 'word' || b.kind === 'block'))
+      // origin = placed box (resting + committed placement), from the cache — no layout read.
+      const rest = boxes.current.find((b) => b.id === id)
+      if (!rest) return
+      const place = placementR.current
+      const pl = place[id] ?? { dx: 0, dy: 0 }
+      const origin: Box = { ...rest, x: rest.x + pl.dx, y: rest.y + pl.dy }
       const startPt = clientToStage(e.clientX, e.clientY, stageR.current)
-      const basePlace = placementR.current[id] ?? { dx: 0, dy: 0 }
-      drag.current = { id, origin, basePlace, startPt, others, dx: 0, dy: 0, guides: [], moved: false }
+      drag.current = {
+        id,
+        origin,
+        basePlace: pl,
+        startPt,
+        dx: 0,
+        dy: 0,
+        guides: [],
+        moved: false,
+        resolvedOthers: new Map(),
+      }
     }
 
     const onUp = () => {
@@ -339,13 +290,22 @@ export function InteractionLayer({ stage, stageRef, placement, setPlacement, act
       if (!d) return
       const wasPlaced = d.id in placementR.current
       if (d.moved || wasPlaced) {
-        setPlacement((prev) => ({
-          ...prev,
-          [d.id]: { dx: d.basePlace.dx + d.dx, dy: d.basePlace.dy + d.dy },
-        }))
+        // Commit the dragged unit AND the resolved cascade, so the composition stays overlap-free
+        // and keeps evolving down new pathways (others don't snap back into the dropped element).
+        setPlacement((prev) => {
+          const next: PlacementMap = { ...prev }
+          next[d.id] = { dx: d.basePlace.dx + d.dx, dy: d.basePlace.dy + d.dy }
+          for (const [id, t] of d.resolvedOthers) {
+            if (Math.hypot(t.dx, t.dy) < 0.5) continue
+            const base = prev[id] ?? { dx: 0, dy: 0 }
+            next[id] = { dx: base.dx + t.dx, dy: base.dy + t.dy }
+            // zero the transient nudge for committed units so they don't double-apply next frame
+            nudge.current.set(id, { dx: 0, dy: 0 })
+          }
+          return next
+        })
       }
       drag.current = null
-      // boxes re-cache happens via the placement-change effect (remeasure).
     }
 
     root.addEventListener('pointerdown', onDown)
@@ -364,7 +324,7 @@ export function InteractionLayer({ stage, stageRef, placement, setPlacement, act
     }
   }, [stageRef, setPlacement])
 
-  // --- the single rAF loop: drives nudges, arrows, activity, cursorRef ---
+  // --- the single rAF loop ---
   useEffect(() => {
     let raf = 0
 
@@ -376,156 +336,261 @@ export function InteractionLayer({ stage, stageRef, placement, setPlacement, act
       const p = pointer.current
       const d = drag.current
       const place = placementR.current
+      const rest = boxes.current
 
-      // --- activity (from cursor velocity + presence) -> activityRef for MorphGrid ---
+      // placed boxes (resting + committed placement) + a by-id index
+      const placedById = new Map<string, Box>()
+      const placed: Box[] = rest.map((b) => {
+        const pl = place[b.id] ?? { dx: 0, dy: 0 }
+        const pb = pl.dx || pl.dy ? { ...b, x: b.x + pl.dx, y: b.y + pl.dy } : b
+        placedById.set(b.id, pb)
+        return pb
+      })
+      // push-units: the non-title words + the title as ONE block (disjoint at rest)
+      const units = placed.filter((b) => b.kind === 'word' || b.id === 'title')
+
+      // --- activity (cursor velocity + presence) -> activityRef for MorphGrid ---
       let velTarget = 0
       if (p.active) {
         const prev = prevPointer.current
-        if (prev) {
-          const v = Math.hypot(p.x - prev.x, p.y - prev.y)
-          velTarget = Math.min(1, 0.25 + v / ACTIVITY_VEL)
-        } else {
-          velTarget = 0.25
-        }
+        velTarget = prev ? Math.min(1, 0.25 + Math.hypot(p.x - prev.x, p.y - prev.y) / ACTIVITY_VEL) : 0.25
         prevPointer.current = { x: p.x, y: p.y }
         cursorRef.current = { x: p.x, y: p.y }
       } else {
         prevPointer.current = null
         cursorRef.current = null
       }
-      if (d) velTarget = Math.max(velTarget, 0.6) // dragging keeps the field alive
-      if (reduced.current) {
-        activityRef.current = 0
-      } else {
-        activityRef.current += (velTarget - activityRef.current) * ACTIVITY_DECAY
-      }
+      if (d) velTarget = Math.max(velTarget, 0.6)
+      if (reduced.current) activityRef.current = 0
+      else activityRef.current += (velTarget - activityRef.current) * ACTIVITY_DECAY
 
-      // --- compute target nudges (hover only; drag pins the dragged element, no nudges) ---
-      let targetNudge = new Map<string, { dx: number; dy: number }>()
-      let corrected: string[] = []
+      // --- target nudges + annotations ---
+      const targetNudge = new Map<string, { dx: number; dy: number }>()
+      // arrows (with their natural label boxes), filled by drag or hover, de-collided at the end
+      const pending: { arrow: Extract<Draw, { kind: 'arrowline' }>; label: { box: Rect; text: string }; opacity: number }[] = []
+      const ghosts: { box: Box; t: { dx: number; dy: number } }[] = []
 
       if (d) {
-        // ----- DRAG: build border + neighbor + guide annotations -----
-        const live: Box = { ...d.origin, x: d.origin.x + d.dx, y: d.origin.y + d.dy }
-        const left = live.x
-        const right = live.x + live.w
-        const top = live.y
-        const bottom = live.y + live.h
-        const cx = live.x + live.w / 2
-        const cy = live.y + live.h / 2
+        // ===== DRAG: pin the grabbed unit at the cursor, relax everyone else out of the way =====
+        const w = d.origin.w
+        const h = d.origin.h
+        let dx = p.x - d.startPt.x
+        let dy = p.y - d.startPt.y
 
-        // four border arrows (left/right horizontal, top/bottom vertical)
-        const border: { o: 'h' | 'v'; len: number; x: number; y: number; val: number }[] = [
-          { o: 'h', len: left, x: 0, y: cy, val: left },
-          { o: 'h', len: ARTBOARD.w - right, x: right, y: cy, val: ARTBOARD.w - right },
-          { o: 'v', len: top, x: cx, y: 0, val: top },
-          { o: 'v', len: ARTBOARD.h - bottom, x: cx, y: bottom, val: ARTBOARD.h - bottom },
-        ]
-        for (const b of border) {
-          if (b.len > 0.5) {
-            draws.push({ kind: 'arrow', orientation: b.o, x: b.x, y: b.y, length: b.len, label: String(Math.round(b.val)), opacity: 1 })
+        const others = units.filter((u) => u.id !== d.id)
+
+        // snap dragged edges/center to key lines + other unit edges
+        const xTargets = [...KEY_X]
+        const yTargets = [...KEY_Y]
+        for (const o of others) {
+          xTargets.push(o.x, o.x + o.w / 2, o.x + o.w)
+          yTargets.push(o.y, o.y + o.h / 2, o.y + o.h)
+        }
+        const guides: { axis: 'v' | 'h'; pos: number }[] = []
+        const lx = d.origin.x + dx
+        const ly = d.origin.y + dy
+        let bestX: { adjust: number; line: number } | null = null
+        for (const edge of [lx, lx + w / 2, lx + w]) {
+          for (const t of xTargets) {
+            const diff = t - edge
+            if (Math.abs(diff) <= SNAP && (!bestX || Math.abs(diff) < Math.abs(bestX.adjust))) bestX = { adjust: diff, line: t }
           }
         }
+        if (bestX) {
+          dx += bestX.adjust
+          guides.push({ axis: 'v', pos: bestX.line })
+        }
+        let bestY: { adjust: number; line: number } | null = null
+        for (const edge of [ly, ly + h / 2, ly + h]) {
+          for (const t of yTargets) {
+            const diff = t - edge
+            if (Math.abs(diff) <= SNAP && (!bestY || Math.abs(diff) < Math.abs(bestY.adjust))) bestY = { adjust: diff, line: t }
+          }
+        }
+        if (bestY) {
+          dy += bestY.adjust
+          guides.push({ axis: 'h', pos: bestY.line })
+        }
 
-        // nearest-neighbor gap arrows
-        const neighbors = [...d.others]
+        // relax: dragged pinned at its (snapped) live position; others mobile from their home.
+        // Pairs already overlapping at HOME (dragged at rest + others placed) are preserved, so a
+        // coarse box that intersects a neighbor by design never gets spuriously shoved.
+        const skip = restOverlapPairs([
+          { id: d.id, x: d.origin.x, y: d.origin.y, w, h },
+          ...others.map((o) => ({ id: o.id, x: o.x, y: o.y, w: o.w, h: o.h })),
+        ])
+        const solver: SolverBox[] = [
+          { id: d.id, x: d.origin.x + dx, y: d.origin.y + dy, w, h, pinned: true },
+          ...others.map((o) => ({ id: o.id, x: o.x, y: o.y, w: o.w, h: o.h, pinned: false })),
+        ]
+        const resolved = relax(solver, { pad: PAD, skip })
+        const resolvedOthers = new Map<string, { dx: number; dy: number }>()
+        const movedById = new Map<string, Box>()
+        for (const o of others) {
+          const r = resolved.get(o.id)!
+          const t = { dx: r.x - o.x, dy: r.y - o.y }
+          resolvedOthers.set(o.id, t)
+          targetNudge.set(o.id, t)
+          movedById.set(o.id, { ...o, x: r.x, y: r.y })
+          if (Math.hypot(t.dx, t.dy) >= GHOST_MIN) ghosts.push({ box: o, t })
+        }
+        d.dx = dx
+        d.dy = dy
+        d.guides = guides
+        d.resolvedOthers = resolvedOthers
+        if (dx || dy) d.moved = true
+
+        // annotations: four border arrows + nearest-neighbor gaps + snap guides
+        const live: Box = { ...d.origin, x: d.origin.x + dx, y: d.origin.y + dy }
+        addBorderArrows(pending, live)
+        const cx = live.x + live.w / 2
+        const cy = live.y + live.h / 2
+        const neighbors = [...movedById.values()]
           .map((o) => ({ o, dist: Math.hypot(o.x + o.w / 2 - cx, o.y + o.h / 2 - cy) }))
           .sort((a, z) => a.dist - z.dist)
           .slice(0, NEIGHBORS)
-        for (const { o } of neighbors) {
-          const g = gapArrow(live, o)
-          if (g) draws.push({ kind: 'arrow', orientation: g.orientation, x: g.left, y: g.top, length: g.length, label: String(Math.round(g.gap)), opacity: 1 })
-        }
-
-        // full-span alignment guides on active snap lines
-        for (const gd of d.guides) {
-          draws.push({ kind: 'guide', orientation: gd.axis, pos: gd.pos, opacity: 0.9 })
-        }
-      } else if (p.active) {
-        // ----- HOVER: ranked measurements + cursor-tracked arrows -----
+        for (const { o } of neighbors) addGapArrow(pending, live, o)
+        for (const g of guides) draws.push({ kind: 'guide', orientation: g.axis, pos: g.pos, opacity: 0.9 })
+      } else if (p.active && !reduced.current) {
+        // ===== HOVER: title split-and-spread (letters) + word/block relax + measurements =====
         const cur = { x: p.x, y: p.y }
-        const candidates = buildMeasurements(boxes.current, ARTBOARD).filter(
-          (m) => m.type !== 'margin' || m.dist <= MAX_MARGIN,
-        )
-        const sel = selectMeasurements(candidates, cur, { maxCount: MAX_COUNT, radius: RADIUS })
+        const ms = buildMeasurements(placed, ARTBOARD).filter((m) => m.type !== 'margin' || m.dist <= MAX_MARGIN)
+        const sel = selectMeasurements(ms, cur, { maxCount: MAX_HOVER, radius: RADIUS })
 
-        if (!reduced.current) {
-          // Separate ONLY the primary (nearest) measurement's elements — the thing directly
-          // under the cursor. The other arrows still read as measurements, but their elements
-          // stay put. With the hero's tight -10% tracking, nudging every selected element would
-          // make neighbours constantly collide (a mess of correction ticks); focusing the nudge
-          // keeps it calm and the auto-correction annotation rare + meaningful.
-          const raw = elementOffsets(sel.slice(0, 1), DELTA)
-          const res = preventOverlap(boxes.current, raw)
-          targetNudge = res.offsets
-          corrected = res.corrected
+        const sep = new Map<string, { dx: number; dy: number }>()
+        const bump = (id: string, dx: number, dy: number) => {
+          const c = sep.get(id) ?? { dx: 0, dy: 0 }
+          c.dx += dx
+          c.dy += dy
+          sep.set(id, c)
         }
 
-        // word rects (resting + clamped nudge) for arrow/word collision checks
-        const wordRects: Rect[] = boxes.current.map((b) => {
-          const n = targetNudge.get(b.id) ?? { dx: 0, dy: 0 }
-          return { x: b.x + n.dx, y: b.y + n.dy, w: b.w, h: b.h }
+        // Title: continuous split over ALL nearby letter gaps. Letters left of a gap shift left,
+        // right shift right — weighted by strength. Opens exactly the hovered gap, preserves every
+        // other kerning pair, and never introduces overlap (adjacent letters only ever move apart).
+        const isLetter = (id: string) => placedById.get(id)?.kind === 'letter'
+        const titleLetters = placed.filter((b) => b.kind === 'letter')
+        for (const m of ms) {
+          if (m.type !== 'gap' || !isLetter(m.aId) || !isLetter(m.bId)) continue
+          const s = cursorRelevance(m, cur, RADIUS).strength
+          if (s <= 0) continue
+          const xc = (m.span.x1 + m.span.x2) / 2
+          for (const L of titleLetters) bump(L.id, (L.x + L.w / 2 < xc ? -1 : 1) * s * DELTA * 0.5, 0)
+        }
+
+        // Words/margins (the selected, non-letter measurements): separate, then relax to cascade.
+        for (const { m, strength } of sel) {
+          if (m.type === 'gap') {
+            if (isLetter(m.aId)) continue // letters handled above
+            const s = (DELTA * strength) / 2
+            if (m.axis === 'v') {
+              bump(m.aId, -s, 0)
+              bump(m.bId, s, 0)
+            } else {
+              bump(m.aId, 0, -s)
+              bump(m.bId, 0, s)
+            }
+          } else {
+            const s = DELTA * strength
+            if (m.side === 'left') bump(m.elId, s, 0)
+            else if (m.side === 'right') bump(m.elId, -s, 0)
+            else if (m.side === 'top') bump(m.elId, 0, s)
+            else bump(m.elId, 0, -s)
+          }
+        }
+
+        // relax word units (title block pinned so words flow around it, never shove it on hover).
+        // Skip pairs that overlap at HOME (placed) — e.g. the tall title's box vs the line below it,
+        // which intersect by design and must NOT be pushed apart.
+        const skip = restOverlapPairs(units.map((u) => ({ id: u.id, x: u.x, y: u.y, w: u.w, h: u.h })))
+        const solver: SolverBox[] = units.map((u) => {
+          const sp = sep.get(u.id) ?? { dx: 0, dy: 0 }
+          return { id: u.id, x: u.x + sp.dx, y: u.y + sp.dy, w: u.w, h: u.h, pinned: u.id === 'title' }
         })
-
-        // Build a draw per selected measurement; track label rects for de-collision.
-        interface Pending {
-          draw: Extract<Draw, { kind: 'arrow' }>
-          labelRect: Rect
+        const resolved = relax(solver, { pad: PAD, skip })
+        for (const u of units) {
+          if (u.id === 'title') continue
+          const r = resolved.get(u.id)!
+          const t = { dx: r.x - u.x, dy: r.y - u.y }
+          targetNudge.set(u.id, t)
+          if (Math.hypot(t.dx, t.dy) >= GHOST_MIN) ghosts.push({ box: u, t })
         }
-        const pending: Pending[] = []
+        // letters: apply split directly (no relax — would wrongly spread the resting kerning)
+        for (const L of titleLetters) {
+          const sp = sep.get(L.id)
+          if (sp) targetNudge.set(L.id, sp)
+        }
 
-        for (const s of sel) {
-          const { m, strength } = s
-          const opacity = Math.max(0.2, strength)
+        // word boxes (placed + target nudge) for arrow/word collision checks
+        const wordRects: Rect[] = placed
+          .filter((b) => b.kind === 'word')
+          .map((b) => {
+            const n = targetNudge.get(b.id) ?? { dx: 0, dy: 0 }
+            return { x: b.x + n.dx, y: b.y + n.dy, w: b.w, h: b.h }
+          })
+
+        // measurement arrows (numbers added to `pending`, de-collided globally below)
+        for (const { m, strength } of sel) {
+          const opacity = clamp(strength, 0.25, 1)
           const track = cursorRelevance(m, cur, RADIUS).track
-
-          let arrow: Extract<Draw, { kind: 'arrow' }> | null = null
+          let arrow: Extract<Draw, { kind: 'arrowline' }> | null = null
+          let value = 0
           if (m.type === 'gap') {
             const opened = Math.max(0, m.gap + DELTA * strength)
-            if (opened >= 3) {
-              if (m.axis === 'v') {
-                const mid = (m.span.x1 + m.span.x2) / 2
-                arrow = { kind: 'arrow', orientation: 'h', x: mid - opened / 2, y: track.y, length: opened, label: String(Math.round(opened)), opacity }
-              } else {
-                const mid = (m.span.y1 + m.span.y2) / 2
-                arrow = { kind: 'arrow', orientation: 'v', x: track.x, y: mid - opened / 2, length: opened, label: String(Math.round(opened)), opacity }
-              }
-            }
+            value = opened
+            if (opened < 2) continue
+            if (m.axis === 'v') arrow = { kind: 'arrowline', orientation: 'h', x: (m.span.x1 + m.span.x2) / 2 - opened / 2, y: track.y, length: opened, opacity }
+            else arrow = { kind: 'arrowline', orientation: 'v', x: track.x, y: (m.span.y1 + m.span.y2) / 2 - opened / 2, length: opened, opacity }
           } else if (m.side === 'left' || m.side === 'right') {
-            const len = Math.abs(m.span.x2 - m.span.x1)
-            arrow = { kind: 'arrow', orientation: 'h', x: Math.min(m.span.x1, m.span.x2), y: track.y, length: len, label: String(Math.round(m.dist)), opacity }
+            value = m.dist
+            arrow = { kind: 'arrowline', orientation: 'h', x: Math.min(m.span.x1, m.span.x2), y: track.y, length: Math.abs(m.span.x2 - m.span.x1), opacity }
           } else {
-            const len = Math.abs(m.span.y2 - m.span.y1)
-            arrow = { kind: 'arrow', orientation: 'v', x: track.x, y: Math.min(m.span.y1, m.span.y2), length: len, label: String(Math.round(m.dist)), opacity }
+            value = m.dist
+            arrow = { kind: 'arrowline', orientation: 'v', x: track.x, y: Math.min(m.span.y1, m.span.y2), length: Math.abs(m.span.y2 - m.span.y1), opacity }
           }
           if (!arrow) continue
-
-          // Nudge the arrow perpendicular off any word it would cross (its body rect).
-          const bodyRect = arrowBodyRect(arrow)
-          if (crossesAny(bodyRect, wordRects)) {
-            const shifted = nudgeOffWords(arrow, wordRects)
-            arrow.x = shifted.x
-            arrow.y = shifted.y
+          // keep margin arrows off any word they'd cross (they span negative space)
+          if (m.type === 'margin' && crossesAny(arrowBodyRect(arrow), wordRects)) {
+            const s = nudgeOffWords(arrow, wordRects)
+            arrow.x = s.x
+            arrow.y = s.y
           }
-
-          pending.push({ draw: arrow, labelRect: labelRect(arrow) })
+          pending.push({ arrow, label: { box: labelBox(arrow, String(Math.round(value))), text: String(Math.round(value)) }, opacity })
         }
+      }
 
-        // numbers never overlap: push label rects apart, shift each arrow's draw point by dy.
-        const dys = resolveLabelCollisions(pending.map((q) => q.labelRect))
+      // ===== zero-overlap number layout: push every label clear of words/letters/heads/each other =====
+      if (pending.length) {
+        const obstacles: Rect[] = []
+        // every reactive element box (placed + its target nudge) is an obstacle for numbers
+        for (const b of placed) {
+          const n = targetNudge.get(b.id) ?? { dx: 0, dy: 0 }
+          if (b.kind === 'letter' || b.kind === 'word' || b.id === 'title')
+            obstacles.push({ x: b.x + n.dx, y: b.y + n.dy, w: b.w, h: b.h })
+        }
+        // arrowheads are obstacles too (a number must never sit on a head)
+        for (const q of pending) for (const hr of arrowHeadRects(q.arrow)) obstacles.push(hr)
+        const labels: SolverBox[] = pending.map((q, i) => ({ id: `lbl${i}`, ...q.label.box }))
+        const offs = layoutLabels(labels, obstacles, 2)
         pending.forEach((q, i) => {
-          q.draw.y += dys[i]
-          draws.push(q.draw)
+          const o = offs.get(`lbl${i}`)!
+          draws.push(q.arrow)
+          draws.push({ kind: 'label', x: q.label.box.x + o.dx, y: q.label.box.y + o.dy, text: q.label.text, opacity: q.opacity })
         })
+      }
 
-        // ≠ marks at corrected elements' touching edge (small double-tick).
-        for (const id of corrected) {
-          const b = boxes.current.find((bb) => bb.id === id)
-          if (!b) continue
-          const n = targetNudge.get(id) ?? { dx: 0, dy: 0 }
-          const ex = b.x + n.dx + b.w / 2
-          const ey = b.y + n.dy + b.h / 2
-          draws.push({ kind: 'correction', x: ex, y: ey, orientation: 'v', opacity: 0.85 })
+      // ghosts (dotted, with perpendicular end ticks) for bounced word/block units
+      for (const g of ghosts) {
+        const b = g.box
+        const n = g.t
+        if (Math.abs(n.dx) >= Math.abs(n.dy)) {
+          const yc = b.y + b.h / 2
+          const edge = n.dx >= 0 ? b.x : b.x + b.w
+          draws.push({ kind: 'ghost', x1: edge, y1: yc, x2: edge + n.dx, y2: yc, opacity: 0.5 })
+        } else {
+          const xc = b.x + b.w / 2
+          const edge = n.dy >= 0 ? b.y : b.y + b.h
+          draws.push({ kind: 'ghost', x1: xc, y1: edge, x2: xc, y2: edge + n.dy, opacity: 0.5 })
         }
       }
 
@@ -557,16 +622,12 @@ export function InteractionLayer({ stage, stageRef, placement, setPlacement, act
           let tx: number
           let ty: number
           if (isDragged) {
-            // pin the dragged element to its live position, no spring, no nudge
-            tx = d!.basePlace.dx + d!.dx
+            tx = d!.basePlace.dx + d!.dx // pinned to the cursor, no spring
             ty = d!.basePlace.dy + d!.dy
           } else {
             tx = pl.dx + cur.dx
             ty = pl.dy + cur.dy
           }
-          // transform only, NO transition (the spring IS the easing). Skip the DOM write when
-          // nothing moved this frame (idle elements) to avoid needless style invalidation —
-          // keeps the loop buttery when at rest. applied cache feeds the next remeasure.
           const prevApplied = applied.current.get(id)
           if (!prevApplied || prevApplied.dx !== tx || prevApplied.dy !== ty) {
             el.style.transition = 'none'
@@ -576,15 +637,14 @@ export function InteractionLayer({ stage, stageRef, placement, setPlacement, act
         }
       }
 
-      // --- write the arrow pool (transform set each frame, opacity fades) ---
+      // --- write the pool ---
       for (let i = 0; i < slots.length; i++) {
-        const slot = slots[i]
         const dr = draws[i]
         if (!dr) {
-          slot.root.style.opacity = '0'
+          slots[i].root.style.opacity = '0'
           continue
         }
-        paintSlot(slot, dr)
+        paintSlot(slots[i], dr)
       }
     }
 
@@ -592,45 +652,92 @@ export function InteractionLayer({ stage, stageRef, placement, setPlacement, act
     return () => cancelAnimationFrame(raf)
   }, [stageRef, activityRef, cursorRef])
 
-  return (
-    <div ref={poolWrapRef} aria-hidden style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 1 }} />
-  )
+  return <div ref={poolWrapRef} aria-hidden style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 1 }} />
+}
+
+// ---------------------------------------------------------------------------------------------
+// drawing helpers
+// ---------------------------------------------------------------------------------------------
+
+type Pending = { arrow: Extract<Draw, { kind: 'arrowline' }>; label: { box: Rect; text: string }; opacity: number }
+
+function addBorderArrows(pending: Pending[], live: Box) {
+  const left = live.x
+  const right = live.x + live.w
+  const top = live.y
+  const bottom = live.y + live.h
+  const cx = live.x + live.w / 2
+  const cy = live.y + live.h / 2
+  const items: { o: 'h' | 'v'; x: number; y: number; len: number }[] = [
+    { o: 'h', x: 0, y: cy, len: left },
+    { o: 'h', x: right, y: cy, len: ARTBOARD.w - right },
+    { o: 'v', x: cx, y: 0, len: top },
+    { o: 'v', x: cx, y: bottom, len: ARTBOARD.h - bottom },
+  ]
+  for (const it of items) {
+    if (it.len <= 0.5) continue
+    const arrow: Extract<Draw, { kind: 'arrowline' }> = { kind: 'arrowline', orientation: it.o, x: it.x, y: it.y, length: it.len, opacity: 1 }
+    pending.push({ arrow, label: { box: labelBox(arrow, String(Math.round(it.len))), text: String(Math.round(it.len)) }, opacity: 1 })
+  }
+}
+
+function addGapArrow(pending: Pending[], a: Box, b: Box) {
+  const g = gapArrow(a, b)
+  if (!g) return
+  const arrow: Extract<Draw, { kind: 'arrowline' }> = { kind: 'arrowline', orientation: g.orientation, x: g.left, y: g.top, length: g.length, opacity: 1 }
+  pending.push({ arrow, label: { box: labelBox(arrow, String(Math.round(g.gap))), text: String(Math.round(g.gap)) }, opacity: 1 })
 }
 
 /** Approximate the arrow's body rect (the line span) for word-collision checks. */
-function arrowBodyRect(a: Extract<Draw, { kind: 'arrow' }>): Rect {
-  if (a.orientation === 'h') return { x: a.x, y: a.y - 1, w: a.length, h: 16 }
-  return { x: a.x - 1, y: a.y, w: 16, h: a.length }
+function arrowBodyRect(a: Extract<Draw, { kind: 'arrowline' }>): Rect {
+  if (a.orientation === 'h') return { x: a.x, y: a.y - 1, w: a.length, h: 3 }
+  return { x: a.x - 1, y: a.y, w: 3, h: a.length }
 }
 
-/** The arrow's label rect (mono 11px centered), used for de-overlapping numbers. */
-function labelRect(a: Extract<Draw, { kind: 'arrow' }>): Rect {
-  const tw = Math.max(12, a.label.length * 7 + 4)
+/** The two arrowhead rects (numbers must never sit on a head). */
+function arrowHeadRects(a: Extract<Draw, { kind: 'arrowline' }>): Rect[] {
+  const s = HEAD + 2
+  if (a.orientation === 'h') {
+    return [
+      { x: a.x - 1, y: a.y - s, w: s, h: s * 2 },
+      { x: a.x + a.length - s + 1, y: a.y - s, w: s, h: s * 2 },
+    ]
+  }
+  return [
+    { x: a.x - s, y: a.y - 1, w: s * 2, h: s },
+    { x: a.x - s, y: a.y + a.length - s + 1, w: s * 2, h: s },
+  ]
+}
+
+/** The number's natural box (top-left, w, h): seeded in the CLEAR band beside the dimension line —
+ * centered just ABOVE an h-arrow (in the empty gap column) / just beside a v-arrow — never on the
+ * heads. From here layoutLabels only ever needs to nudge it straight out into clear space, so it
+ * escapes even the dense 200px title field cleanly. */
+function labelBox(a: Extract<Draw, { kind: 'arrowline' }>, text: string): Rect {
+  const tw = Math.max(12, text.length * 7 + 4)
   const th = 13
-  if (a.orientation === 'h') return { x: a.x + a.length / 2 - tw / 2, y: a.y - 12, w: tw, h: th }
+  if (a.orientation === 'h') return { x: a.x + a.length / 2 - tw / 2, y: a.y - th - 4, w: tw, h: th }
   return { x: a.x + 12, y: a.y + a.length / 2 - th / 2, w: tw, h: th }
 }
 
 /** Shift an arrow perpendicular to its axis until its body clears every word (bounded). */
-function nudgeOffWords(a: Extract<Draw, { kind: 'arrow' }>, words: Rect[]): { x: number; y: number } {
+function nudgeOffWords(a: Extract<Draw, { kind: 'arrowline' }>, words: Rect[]): { x: number; y: number } {
   let { x, y } = a
   const STEP = 4
   for (let i = 0; i < 24; i++) {
-    const body = a.orientation === 'h' ? { x, y: y - 1, w: a.length, h: 16 } : { x: x - 1, y, w: 16, h: a.length }
+    const body = a.orientation === 'h' ? { x, y: y - 1, w: a.length, h: 3 } : { x: x - 1, y, w: 3, h: a.length }
     if (!crossesAny(body, words)) break
-    // push perpendicular (h arrow -> move in y; v arrow -> move in x), alternating sign+
     if (a.orientation === 'h') y += STEP
     else x += STEP
   }
   return { x, y }
 }
 
-/** Write a Draw instruction into a pooled SVG slot (transform/attributes only). */
+/** Write a Draw into a pooled SVG slot (transform/attributes only). */
 function paintSlot(slot: PoolSlot, dr: Draw) {
   const show = (el: SVGElement, on: boolean) => {
     el.style.display = on ? '' : 'none'
   }
-  // hide everything; the active branch re-enables its primitives
   show(slot.line, false)
   show(slot.head1, false)
   show(slot.head2, false)
@@ -638,12 +745,9 @@ function paintSlot(slot: PoolSlot, dr: Draw) {
   show(slot.guide, false)
   show(slot.tickA, false)
   show(slot.tickB, false)
-  show(slot.corrA, false)
-  show(slot.corrB, false)
-
   slot.root.style.opacity = String(dr.opacity)
 
-  if (dr.kind === 'arrow') {
+  if (dr.kind === 'arrowline') {
     const L = dr.length
     if (dr.orientation === 'h') {
       slot.svg.setAttribute('width', String(L))
@@ -651,39 +755,47 @@ function paintSlot(slot: PoolSlot, dr: Draw) {
       setLine(slot.line, 0, 8, L, 8)
       slot.head1.setAttribute('points', `${HEAD},${8 - HEAD} 0,8 ${HEAD},${8 + HEAD}`)
       slot.head2.setAttribute('points', `${L - HEAD},${8 - HEAD} ${L},8 ${L - HEAD},${8 + HEAD}`)
-      setText(slot.text, L / 2, 4, 'middle', dr.label)
+      slot.root.style.transform = `translate(${dr.x}px, ${dr.y - 8}px)`
     } else {
       slot.svg.setAttribute('width', '16')
       slot.svg.setAttribute('height', String(L))
       setLine(slot.line, 8, 0, 8, L)
       slot.head1.setAttribute('points', `${8 - HEAD},${HEAD} 8,0 ${8 + HEAD},${HEAD}`)
       slot.head2.setAttribute('points', `${8 - HEAD},${L - HEAD} 8,${L} ${8 + HEAD},${L - HEAD}`)
-      setText(slot.text, 12, L / 2, 'start', dr.label)
+      slot.root.style.transform = `translate(${dr.x - 8}px, ${dr.y}px)`
     }
-    slot.root.style.transform = `translate(${dr.x}px, ${dr.y}px)`
     show(slot.line, true)
     show(slot.head1, true)
     show(slot.head2, true)
+    return
+  }
+
+  if (dr.kind === 'label') {
+    slot.svg.setAttribute('width', '40')
+    slot.svg.setAttribute('height', '14')
+    setText(slot.text, 0, 11, 'start', dr.text)
+    slot.root.style.transform = `translate(${dr.x}px, ${dr.y}px)`
     show(slot.text, true)
     return
   }
 
   if (dr.kind === 'guide') {
+    slot.guide.setAttribute('stroke-dasharray', '3 3')
     if (dr.orientation === 'v') {
       const span = ARTBOARD.h
       slot.svg.setAttribute('width', '16')
       slot.svg.setAttribute('height', String(span))
       setLine(slot.guide, 8, 0, 8, span)
-      setLine(slot.tickA, 8 - TICK, 0, 8 + TICK, 0)
-      setLine(slot.tickB, 8 - TICK, span, 8 + TICK, span)
+      setLine(slot.tickA, 8 - CAP, 0, 8 + CAP, 0)
+      setLine(slot.tickB, 8 - CAP, span, 8 + CAP, span)
       slot.root.style.transform = `translate(${dr.pos - 8}px, 0px)`
     } else {
       const span = ARTBOARD.w
       slot.svg.setAttribute('width', String(span))
       slot.svg.setAttribute('height', '16')
       setLine(slot.guide, 0, 8, span, 8)
-      setLine(slot.tickA, 0, 8 - TICK, 0, 8 + TICK)
-      setLine(slot.tickB, span, 8 - TICK, span, 8 + TICK)
+      setLine(slot.tickA, 0, 8 - CAP, 0, 8 + CAP)
+      setLine(slot.tickB, span, 8 - CAP, span, 8 + CAP)
       slot.root.style.transform = `translate(0px, ${dr.pos - 8}px)`
     }
     show(slot.guide, true)
@@ -692,14 +804,33 @@ function paintSlot(slot: PoolSlot, dr: Draw) {
     return
   }
 
-  // correction ≠ mark: two short parallel ticks crossing the touching edge
-  slot.svg.setAttribute('width', '12')
-  slot.svg.setAttribute('height', '12')
-  setLine(slot.corrA, 1, 3, 11, 1)
-  setLine(slot.corrB, 1, 11, 11, 9)
-  slot.root.style.transform = `translate(${dr.x - 6}px, ${dr.y - 6}px)`
-  show(slot.corrA, true)
-  show(slot.corrB, true)
+  // ghost: finely-dotted segment + a short perpendicular tick at each end (its start/end points)
+  const minX = Math.min(dr.x1, dr.x2)
+  const minY = Math.min(dr.y1, dr.y2)
+  const horizontal = Math.abs(dr.y2 - dr.y1) < Math.abs(dr.x2 - dr.x1)
+  const gw = Math.max(1, Math.abs(dr.x2 - dr.x1)) + (horizontal ? 0 : CAP * 2)
+  const gh = Math.max(1, Math.abs(dr.y2 - dr.y1)) + (horizontal ? CAP * 2 : 0)
+  const ox = horizontal ? 0 : CAP
+  const oy = horizontal ? CAP : 0
+  slot.svg.setAttribute('width', String(gw))
+  slot.svg.setAttribute('height', String(gh))
+  slot.guide.setAttribute('stroke-dasharray', '2 3')
+  const ax = dr.x1 - minX + ox
+  const ay = dr.y1 - minY + oy
+  const bx = dr.x2 - minX + ox
+  const by = dr.y2 - minY + oy
+  setLine(slot.guide, ax, ay, bx, by)
+  if (horizontal) {
+    setLine(slot.tickA, ax, ay - CAP, ax, ay + CAP)
+    setLine(slot.tickB, bx, by - CAP, bx, by + CAP)
+  } else {
+    setLine(slot.tickA, ax - CAP, ay, ax + CAP, ay)
+    setLine(slot.tickB, bx - CAP, by, bx + CAP, by)
+  }
+  slot.root.style.transform = `translate(${minX - ox}px, ${minY - oy}px)`
+  show(slot.guide, true)
+  show(slot.tickA, true)
+  show(slot.tickB, true)
 }
 
 function setLine(el: SVGLineElement, x1: number, y1: number, x2: number, y2: number) {
@@ -724,41 +855,21 @@ interface GapArrow {
   gap: number
 }
 
-/** A gap arrow from dragged box `a` to neighbor `b`, along whichever axis they're cleanly
- * separated on (prefer the axis with a real, non-overlapping gap). Mirrors DragLayer. */
+/** A gap arrow from box `a` to neighbor `b`, along whichever axis they're cleanly separated on. */
 function gapArrow(a: Box, b: Box): GapArrow | null {
-  const aL = a.x
   const aR = a.x + a.w
-  const aT = a.y
   const aB = a.y + a.h
-  const bL = b.x
   const bR = b.x + b.w
-  const bT = b.y
   const bB = b.y + b.h
-
-  const yOverlap = Math.min(aB, bB) - Math.max(aT, bT)
+  const yOverlap = Math.min(aB, bB) - Math.max(a.y, b.y)
   if (yOverlap > 0) {
-    if (bL >= aR) {
-      const yMid = (Math.max(aT, bT) + Math.min(aB, bB)) / 2
-      return { orientation: 'h', left: aR, top: yMid, length: bL - aR, gap: bL - aR }
-    }
-    if (aL >= bR) {
-      const yMid = (Math.max(aT, bT) + Math.min(aB, bB)) / 2
-      return { orientation: 'h', left: bR, top: yMid, length: aL - bR, gap: aL - bR }
-    }
+    if (b.x >= aR) return { orientation: 'h', left: aR, top: (Math.max(a.y, b.y) + Math.min(aB, bB)) / 2, length: b.x - aR, gap: b.x - aR }
+    if (a.x >= bR) return { orientation: 'h', left: bR, top: (Math.max(a.y, b.y) + Math.min(aB, bB)) / 2, length: a.x - bR, gap: a.x - bR }
   }
-
-  const xOverlap = Math.min(aR, bR) - Math.max(aL, bL)
+  const xOverlap = Math.min(aR, bR) - Math.max(a.x, b.x)
   if (xOverlap > 0) {
-    if (bT >= aB) {
-      const xMid = (Math.max(aL, bL) + Math.min(aR, bR)) / 2
-      return { orientation: 'v', left: xMid, top: aB, length: bT - aB, gap: bT - aB }
-    }
-    if (aT >= bB) {
-      const xMid = (Math.max(aL, bL) + Math.min(aR, bR)) / 2
-      return { orientation: 'v', left: xMid, top: bB, length: aT - bB, gap: aT - bB }
-    }
+    if (b.y >= aB) return { orientation: 'v', left: (Math.max(a.x, b.x) + Math.min(aR, bR)) / 2, top: aB, length: b.y - aB, gap: b.y - aB }
+    if (a.y >= bB) return { orientation: 'v', left: (Math.max(a.x, b.x) + Math.min(aR, bR)) / 2, top: bB, length: a.y - bB, gap: a.y - bB }
   }
-
   return null
 }

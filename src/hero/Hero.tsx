@@ -60,6 +60,11 @@ export function Hero() {
    * and the MorphGrid (reader), purely via refs so neither re-renders in the hot path. */
   const activityRef = useRef(0)
   const cursorRef = useRef<{ x: number; y: number } | null>(null)
+  /** Live placed word/block boxes + a change counter — the InteractionLayer publishes the current
+   * composition here and the MorphGrid anchors its grid to it, so the negative-space grid always
+   * reflects (and works with) the arrangement as the user moves things. Refs: no hot-path renders. */
+  const compositionRef = useRef<{ x: number; y: number; w: number; h: number }[]>([])
+  const compositionVersion = useRef(0)
 
   const reset = useCallback(() => setPlacement({}), [])
 
@@ -98,7 +103,12 @@ export function Hero() {
           transformOrigin: 'top left',
         }}
       >
-        <MorphGrid activityRef={activityRef} cursorRef={cursorRef} />
+        <MorphGrid
+          activityRef={activityRef}
+          cursorRef={cursorRef}
+          compositionRef={compositionRef}
+          compositionVersion={compositionVersion}
+        />
 
         {TEXT_BLOCKS.map((b) => (
           <div key={b.id} style={blockStyle(b)} data-block={b.id}>
@@ -161,6 +171,8 @@ export function Hero() {
           setPlacement={setPlacement}
           activityRef={activityRef}
           cursorRef={cursorRef}
+          compositionRef={compositionRef}
+          compositionVersion={compositionVersion}
         />
       </div>
     </main>
