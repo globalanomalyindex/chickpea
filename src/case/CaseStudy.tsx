@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { CornerNav } from '../app/CornerNav'
+import { BrandMenu } from '../app/BrandMenu'
 import { RainbowText, NatureWord } from '../components/colorWords'
 import { SECTIONS, TITLE, type Section } from './content'
 import { SubdivisionFigure } from './figures/SubdivisionFigure'
@@ -29,7 +29,7 @@ export function CaseStudy() {
         paddingBottom: 'clamp(60px, 12vh, 140px)',
       }}
     >
-      <CornerNav />
+      <BrandMenu />
 
       <article
         style={{

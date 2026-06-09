@@ -3,7 +3,7 @@ import { ARTBOARD, HERO_COLORS, TEXT_BLOCKS, GLYPHS, SKILLS_RULE, type TextBlock
 import { MorphGrid } from './MorphGrid'
 import { InteractionLayer } from './InteractionLayer'
 import { StudioGlyphLink } from './StudioGlyphLink'
-import { CornerNav } from '../app/CornerNav'
+import { BrandMenu } from '../app/BrandMenu'
 import { rainbowColor, naturePalette } from '../components/colorWords'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
@@ -128,7 +128,7 @@ export function Hero() {
     <main
       style={{ position: 'fixed', inset: 0, background: HERO_COLORS.slate, overflow: 'hidden' }}
     >
-      <CornerNav />
+      <BrandMenu />
       {hasPlacements && <ResetControl reset={reset} />}
       <div
         ref={stageRef}
@@ -219,7 +219,7 @@ export function Hero() {
 }
 
 /**
- * A quiet mono corner control mirroring the CornerNav language: a single `reset` that appears
+ * A quiet mono corner control in the same restrained language as the nav: a single `reset` that appears
  * only when placements exist. The `R` shortcut is the fast path.
  */
 function ResetControl({ reset }: { reset: () => void }) {

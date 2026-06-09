@@ -55,8 +55,7 @@ export function GeneratorControls(p: Props) {
       className="studio-rail"
       style={{
         boxSizing: 'border-box',
-        // generous bottom padding so the scrolling content always clears the fixed BrandMenu
-        padding: '32px 28px 104px',
+        padding: '32px 28px 40px',
         display: 'flex',
         flexDirection: 'column',
         gap: 26,
