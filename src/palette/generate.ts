@@ -1,5 +1,4 @@
 import { generatePaletteColors } from './engine'
-import type { PaletteStyle } from './engine'
 
 /**
  * A finished palette color. `hex`/`rgb` are the gamut-mapped sRGB the composition renders; `h/s/l`
@@ -16,11 +15,11 @@ export interface PaletteColor {
 }
 
 /**
- * Generate a palette of `count` colors in a given mood/`style` (default `auto` = a seeded surprise
- * recipe). Pure and deterministic for (seed, count, style). The real work lives in the OKLCH engine
- * (`./engine`) and the mood recipes (`./recipes`); this is the stable public surface every consumer
- * imports, so the revamp didn't ripple through composition/export/studio call sites.
+ * Generate a palette of `count` colors. There are no styles or loaded palettes — the engine searches
+ * a continuous procedural space (genome → score → hill-climb) and emits a quality-selected champion,
+ * so every seed yields a different, always-working, always-beautiful palette. Pure and deterministic
+ * for (seed, count). This is the stable public surface every consumer imports.
  */
-export function generatePalette(seed: number, count: number, style: PaletteStyle = 'auto'): PaletteColor[] {
-  return generatePaletteColors(seed, count, style)
+export function generatePalette(seed: number, count: number): PaletteColor[] {
+  return generatePaletteColors(seed, count)
 }

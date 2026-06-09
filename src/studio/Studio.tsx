@@ -7,7 +7,6 @@ import { generateNature, defaultNatureParams } from '../grid/generators/nature'
 import { buildAnchoredGrid, type Cut } from '../grid/anchor'
 import { encodeDescriptor, decodeDescriptor } from '../grid/serialize'
 import { generatePalette } from '../palette/generate'
-import { resolveStyle, type PaletteStyle } from '../palette/engine'
 import type { ColorWeight } from '../palette/kmeans'
 import { buildComposition } from './composition'
 import { imagePaletteToPalette } from './imagePalette'
@@ -49,12 +48,11 @@ export interface Doc {
   columns: number // modular
   rows: number // modular
   depth: number // nature
-  paletteStyle: PaletteStyle // color mood
-  colorCount: number // how many colors in the palette
+  colorCount: number // how many colors in the generated palette
 }
 
-function defaultDoc(generator: GeneratorKind, seed: number, paletteStyle: PaletteStyle, colorCount: number): Doc {
-  return { generator, seed, targetModules: 9, columns: 6, rows: 4, depth: 6, paletteStyle, colorCount }
+function defaultDoc(generator: GeneratorKind, seed: number, colorCount: number): Doc {
+  return { generator, seed, targetModules: 9, columns: 6, rows: 4, depth: 6, colorCount }
 }
 
 interface History {
@@ -76,12 +74,12 @@ export function Studio() {
 
   // generative state + undo/redo history (a single snapshot stack)
   const [hist, setHist] = useState<History>(() => ({
-    doc: defaultDoc(initial.kind, initial.seed, initial.style, initial.count),
+    doc: defaultDoc(initial.kind, initial.seed, initial.count),
     past: [],
     future: [],
   }))
   const doc = hist.doc
-  const { generator, seed, targetModules, columns, rows, depth, paletteStyle, colorCount } = doc
+  const { generator, seed, targetModules, columns, rows, depth, colorCount } = doc
   // coalesce rapid same-field edits (slider drags, repeated taps) into ONE undo step
   const coalesceKey = useRef<string | null>(null)
   const coalesceAt = useRef(0)
@@ -125,10 +123,10 @@ export function Studio() {
   // keep (generator, seed) in the URL query so any state is shareable
   useEffect(() => {
     const next = new URLSearchParams(params)
-    encodeDescriptor({ kind: generator, seed, style: paletteStyle, count: colorCount }, next)
+    encodeDescriptor({ kind: generator, seed, count: colorCount }, next)
     if (next.toString() !== params.toString()) setParams(next, { replace: true })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [generator, seed, paletteStyle, colorCount])
+  }, [generator, seed, colorCount])
 
   // In image mode the grid is the anchored grid (cuts fixed, math seed-varied); in scratch
   // mode it is the chosen generator. Either way Generate/Iterate re-seed the variations.
@@ -142,8 +140,8 @@ export function Studio() {
 
   const palette = useMemo(() => {
     if (mode === 'image' && image && image.palette.length > 0) return imagePaletteToPalette(image.palette)
-    return generatePalette(seed, colorCount, paletteStyle)
-  }, [mode, image, seed, colorCount, paletteStyle])
+    return generatePalette(seed, colorCount)
+  }, [mode, image, seed, colorCount])
 
   const composition = useMemo(
     () => buildComposition(grid, palette, { seed, textChance: textOn ? 0.3 : 0 }),
@@ -240,8 +238,6 @@ export function Studio() {
         columns={columns}
         rows={rows}
         depth={depth}
-        paletteStyle={paletteStyle}
-        resolvedStyle={resolveStyle(seed, paletteStyle)}
         colorCount={colorCount}
         palette={palette}
         grid={grid}
@@ -259,7 +255,6 @@ export function Studio() {
         onColumns={(v) => commit({ columns: v }, 'columns')}
         onRows={(v) => commit({ rows: v }, 'rows')}
         onDepth={(v) => commit({ depth: v }, 'depth')}
-        onPaletteStyle={(st) => commit({ paletteStyle: st }, 'paletteStyle')}
         onColorCount={(n) => commit({ colorCount: n }, 'colorCount')}
         onGenerate={onGenerate}
         onIterate={onIterate}

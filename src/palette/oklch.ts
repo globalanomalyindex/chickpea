@@ -107,6 +107,24 @@ export function gamutMapToRgb(c: Oklch): [number, number, number] {
   return lin.map((v) => Math.round(clamp01(linearToSrgb(clamp01(v))) * 255)) as unknown as [number, number, number]
 }
 
+/**
+ * Largest in-gamut chroma for a given lightness and hue (binary search). Lets the procedural
+ * sampler request chroma as a FRACTION of the available headroom, so a color rarely needs gamut
+ * clamping afterward — intent ≈ render. Returns 0 for near-black/near-white where no chroma fits.
+ */
+export function maxChroma(L: number, H: number): number {
+  const Lc = L < 0 ? 0 : L > 1 ? 1 : L
+  if (!linearInGamut(oklchToLinear({ L: Lc, C: 0.002, H }))) return 0
+  let lo = 0
+  let hi = 0.5
+  for (let i = 0; i < 24; i++) {
+    const mid = (lo + hi) / 2
+    if (linearInGamut(oklchToLinear({ L: Lc, C: mid, H: H }))) lo = mid
+    else hi = mid
+  }
+  return lo
+}
+
 /** Convert sRGB [r,g,b] (0..255) into OKLCH. */
 export function rgbToOklch([r, g, b]: [number, number, number]): Oklch {
   const [L, a, bb] = linearSrgbToOklab(srgbToLinear(r / 255), srgbToLinear(g / 255), srgbToLinear(b / 255))

@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom'
 import type { Grid, GeneratorKind } from '../grid/types'
 import type { StudioMode } from './Studio'
 import { GENERATOR_KINDS } from '../grid/generators'
-import { PALETTE_STYLES, type PaletteStyle } from '../palette/engine'
 import type { PaletteColor } from '../palette/generate'
 
 const CREAM = '#f4f0e8'
@@ -19,10 +18,7 @@ interface Props {
   columns: number
   rows: number
   depth: number
-  /** color mood + count, and the live palette they produce (for the swatch preview) */
-  paletteStyle: PaletteStyle
-  /** the concrete mood `auto` resolved to (== paletteStyle when not auto) — shown as a caption */
-  resolvedStyle: string
+  /** how many colors in the generated palette, and the live palette itself (for the swatch preview) */
   colorCount: number
   palette: PaletteColor[]
   grid: Grid
@@ -41,7 +37,6 @@ interface Props {
   onColumns: (v: number) => void
   onRows: (v: number) => void
   onDepth: (v: number) => void
-  onPaletteStyle: (s: PaletteStyle) => void
   onColorCount: (n: number) => void
   onGenerate: () => void
   onIterate: () => void
@@ -135,32 +130,12 @@ export function GeneratorControls(p: Props) {
 
       {!p.bisecting && (
         <Section label="color">
-          {p.mode === 'scratch' ? (
-            <>
-              <StyleChips value={p.paletteStyle} onChange={p.onPaletteStyle} />
-              {p.paletteStyle === 'auto' && (
-                <div
-                  style={{
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: 10.5,
-                    letterSpacing: '0.04em',
-                    color: STEEL,
-                    marginTop: 9,
-                  }}
-                >
-                  surprise → {p.resolvedStyle}
-                </div>
-              )}
-              <div style={{ marginTop: 14 }}>
-                <Slider label="colors" value={p.colorCount} min={2} max={12} onChange={p.onColorCount} />
-              </div>
-              <div style={{ marginTop: 12 }}>
-                <Swatches palette={p.palette} />
-              </div>
-            </>
-          ) : (
-            <Swatches palette={p.palette} />
+          {p.mode === 'scratch' && (
+            <div style={{ marginBottom: 12 }}>
+              <Slider label="colors" value={p.colorCount} min={2} max={12} onChange={p.onColorCount} />
+            </div>
           )}
+          <Swatches palette={p.palette} />
         </Section>
       )}
 
@@ -306,40 +281,6 @@ function Slider({
       />
       <span style={{ minWidth: '2.2em', textAlign: 'right', color: STEEL, letterSpacing: '0.04em' }}>{value}</span>
     </label>
-  )
-}
-
-/** The color-mood picker: wrapping pills, `auto` (the seeded surprise) first. Active = cream fill. */
-function StyleChips({ value, onChange }: { value: PaletteStyle; onChange: (s: PaletteStyle) => void }) {
-  return (
-    <div role="radiogroup" aria-label="color style" style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-      {PALETTE_STYLES.map((s) => {
-        const active = s === value
-        return (
-          <button
-            key={s}
-            role="radio"
-            aria-checked={active}
-            onClick={() => onChange(s)}
-            style={{
-              appearance: 'none',
-              background: active ? CREAM : 'transparent',
-              color: active ? '#2a2e31' : CREAM,
-              border: `1px solid ${active ? CREAM : HAIR}`,
-              borderRadius: 999,
-              padding: '5px 11px',
-              fontFamily: 'var(--font-mono)',
-              fontSize: 11,
-              letterSpacing: '0.04em',
-              cursor: 'pointer',
-              transition: 'background 140ms, color 140ms, border-color 140ms',
-            }}
-          >
-            {s}
-          </button>
-        )
-      })}
-    </div>
   )
 }
 

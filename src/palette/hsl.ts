@@ -45,7 +45,8 @@ export function rgbToHsl([r, g, b]: [number, number, number]): [number, number, 
   const l = (max + min) / 2
   const d = max - min
   if (d === 0) return [0, 0, l]
-  const s = d / (1 - Math.abs(2 * l - 1))
+  // clamp guards against float error nudging a fully-saturated color's s just past 1
+  const s = Math.min(1, d / (1 - Math.abs(2 * l - 1)))
   let h: number
   if (max === rn) h = ((gn - bn) / d) % 6
   else if (max === gn) h = (bn - rn) / d + 2

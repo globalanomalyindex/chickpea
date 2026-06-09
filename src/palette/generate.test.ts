@@ -17,15 +17,8 @@ describe('generatePalette (public surface)', () => {
     expect(generatePalette(1, 5)[0].hex).not.toBe(generatePalette(2, 5)[0].hex)
   })
 
-  it('honors an explicit style, defaulting to a seeded surprise (auto)', () => {
-    const neon = generatePalette(3, 6, 'neon')
-    expect(neon.length).toBe(6)
-    // auto is the default and is reproducible
-    expect(generatePalette(3, 6)).toEqual(generatePalette(3, 6, 'auto'))
-  })
-
   it('carries a truthful HSL readout for every color', () => {
-    for (const c of generatePalette(123, 8, 'botanical')) {
+    for (const c of generatePalette(123, 8)) {
       expect(c.h).toBeGreaterThanOrEqual(0)
       expect(c.h).toBeLessThan(360)
       expect(c.s).toBeGreaterThanOrEqual(0)
