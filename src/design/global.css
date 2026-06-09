@@ -10,6 +10,17 @@ body {
 }
 
 /*
+ * Custom Chickpea cursors — the warm pixel pointer set, slightly larger than the system cursor.
+ * Hotspots are aligned to the underlying real cursor so there's no offset: the arrow keys on its
+ * tip (0 0); the hand on its fingertip (11 0). Interactive + draggable things get the hand; text
+ * fields keep the I-beam. PNG fallback keyword (auto/pointer/text) covers any browser that declines.
+ */
+html, body { cursor: url('/cursors/arrow.png') 0 0, auto; }
+a, button, [role='button'], summary, label[for], select,
+[data-word], [data-block] { cursor: url('/cursors/hand.png') 11 0, pointer; }
+input, textarea, [contenteditable='true'] { cursor: text; }
+
+/*
  * Reduced motion: collapse CSS transitions/animations to a hair so nothing slides or
  * springs. The hero's cursor separation and the Measure figure are gated in JS as well
  * (the dimension arrow still appears — only the motion bows out). The static, Figma-exact

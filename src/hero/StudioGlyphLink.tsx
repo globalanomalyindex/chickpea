@@ -2,6 +2,10 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { HERO_COLORS, type Glyph } from './heroLayout'
 
+/** The studio `→` glyph's ink — the warm cursor brown, so the link into the studio reads as the
+ * one thing you can click straight into (and matches the custom cursor). */
+const STUDIO_ARROW = '#B86B4B'
+
 /**
  * The hero's `→` glyph, promoted to a keyboard-focusable link into the studio.
  * Faithful to the Figma at rest (a bare cream arrow); on hover/focus it earns a
@@ -27,11 +31,10 @@ export function StudioGlyphLink({ glyph }: { glyph: Glyph }) {
         fontFamily: 'var(--font-display)',
         fontSize: glyph.fontSize,
         lineHeight: 1,
-        color: HERO_COLORS.cream,
+        color: STUDIO_ARROW,
         textDecoration: 'none',
         userSelect: 'none',
         outline: 'none',
-        cursor: 'pointer',
         display: 'inline-block',
       }}
     >
@@ -46,7 +49,7 @@ export function StudioGlyphLink({ glyph }: { glyph: Glyph }) {
             right: 2,
             bottom: -2,
             height: 1.5,
-            background: HERO_COLORS.cream,
+            background: STUDIO_ARROW,
             transformOrigin: 'left center',
             transform: `scaleX(${active ? 1 : 0})`,
             transition: 'transform 260ms cubic-bezier(.22,1,.36,1)',

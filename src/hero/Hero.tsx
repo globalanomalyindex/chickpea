@@ -214,7 +214,6 @@ function ResetControl({ reset }: { reset: () => void }) {
           background: 'none',
           border: 'none',
           padding: 0,
-          cursor: 'pointer',
           font: 'inherit',
           opacity: 0.7,
           transition: 'opacity 160ms ease',
