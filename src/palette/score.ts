@@ -199,6 +199,59 @@ export function scorePalette(p: Oklch[]): ScoreBreakdown {
   for (let i = 0; i < n; i++) for (let j = 0; j < i; j++) minDE = Math.min(minDE, deltaE(p[i], p[j]))
   const separation = smooth(minDE, 0.05, maxL < 0.52 ? 0.13 : 0.18)
 
+  // FIGURE-GROUND — not a style, a law the engine prices the way nature prices pigment: saturated
+  // color is expensive, so most of any honest scene is a quiet field and the spend happens only
+  // where it earns signal value (the flower against the canopy, the warning band on the wasp).
+  // The anti-dud gates (chromatic mass, gray damp, lone-chip kills) were built to stop accidental
+  // gray padding, and they were taxing this whole region of the space with it. The difference
+  // between a FIELD and PADDING is measurable, and that measurement is this term:
+  //   - one or two genuinely saturated figures (relative AND absolute), nothing half-hearted between
+  //   - the field carries the contrast: a wide, evenly-stepped lightness ladder
+  //   - the field agrees on one cast (a coherent tint family) or is truly achromatic
+  //   - the figures sit at a usable lightness (a deep red, not a neon sliver or a near-black)
+  // Every factor is CONTINUOUS — the entry conditions are counts, but each figure contributes a
+  // smooth strength, so a borderline figure weakens the term instead of flipping it (a hard
+  // rel-threshold cliff once let the harmonizer's spread-stretch collapse a champion 4x post-hoc).
+  let figureGround = 0
+  {
+    const figures: number[] = [] // saturated-or-nearly: candidates for the figure role
+    const field: number[] = [] // quiet slots
+    let mid = 0
+    for (let i = 0; i < n; i++) {
+      if (Cs[i] >= 0.1) figures.push(i)
+      else if (Cs[i] <= 0.055) field.push(i)
+      else mid++
+    }
+    if (figures.length >= 1 && figures.length <= 2 && mid === 0 && field.length >= 3) {
+      const nL = field.map((i) => Ls[i]).sort((a, b) => a - b)
+      const span = nL[nL.length - 1] - nL[0]
+      let minGap = Infinity
+      for (let i = 1; i < nL.length; i++) minGap = Math.min(minGap, nL[i] - nL[i - 1])
+      const ladder = smooth(span, 0.35, 0.55) * smooth(minGap, 0.02, 0.06)
+      // only VISIBLE tints vote on cast agreement: below C≈0.018 a hue exists numerically but
+      // reads as pure gray, so it can neither support nor break the field's coherence
+      let sx2 = 0
+      let sy2 = 0
+      let wsum = 0
+      for (const i of field) {
+        if (Cs[i] < 0.018) continue
+        sx2 += Cs[i] * Math.cos(Hs[i] * RAD)
+        sy2 += Cs[i] * Math.sin(Hs[i] * RAD)
+        wsum += Cs[i]
+      }
+      const cast = wsum < 0.025 ? 1 : smooth(Math.hypot(sx2, sy2) / wsum, 0.55, 0.85)
+      // each figure must EARN the role: genuinely saturated (relative and absolute, smoothly) and
+      // placed at a usable lightness — the weakest figure bounds the whole claim
+      let signal = 1
+      for (const i of figures) {
+        const vividness = smooth(rels[i], 0.45, 0.62) * smooth(Cs[i], 0.1, 0.13)
+        const placed = smooth(Ls[i], 0.24, 0.34) * (1 - smooth(Ls[i], 0.72, 0.84))
+        signal = Math.min(signal, vividness * placed)
+      }
+      figureGround = ladder * cast * signal
+    }
+  }
+
   // harmony: CHROMA-WEIGHTED — neutral slots read as hueless and don't vote on hue structure.
   // Best of three roads, damped when one color hogs the chroma mass (Herfindahl→1 makes Rcw
   // trivially ~1):
@@ -259,8 +312,12 @@ export function scorePalette(p: Oklch[]): ScoreBreakdown {
       mono * mono * smooth(span, 30, 80) * (1 - smooth(span, 220, 320)) *
       (1 - smooth(maxStep, 38, 60)) * (1 - 0.6 * smooth(rough, 0.05, 0.1)) * 0.86
   }
-  const harmony =
-    Math.max(Rcw, gapEven, ramp) * (smooth(n, 1.5, 3.5) * 0.3 + 0.7) * smooth(effChromatic, 1.5, 2.5)
+  // a figure-ground set's hue structure is trivially coherent (one chromatic voice over a unified
+  // field), but its Herfindahl concentration looks like a lone chip — the field term vouches for it
+  const harmony = Math.max(
+    Math.max(Rcw, gapEven, ramp) * (smooth(n, 1.5, 3.5) * 0.3 + 0.7) * smooth(effChromatic, 1.5, 2.5),
+    0.78 * figureGround,
+  )
 
   // focal: a chromatic lead WITH real support (60-30-10). Gated on a genuine second color so a lone
   // chip can't claim a perfect focal score from chroma variance alone; an all-vivid set gets a pass
@@ -281,6 +338,8 @@ export function scorePalette(p: Oklch[]): ScoreBreakdown {
   if ((minL > 0.52 || maxL < 0.52) && cMean > 0.055 && maxC > 0.09) focal = Math.max(focal, 0.6 * structured)
   if (ramp > 0.6 && cMean > 0.07) focal = Math.max(focal, 0.6 * structured)
   if (cMean > 0.12 && Rcw < 0.35 && cv < 0.3) focal *= 0.5
+  // figure-ground IS focality — 60-30-10 in its purest form
+  focal = Math.max(focal, 0.88 * figureGround)
   focal = clamp(focal, 0, 1)
 
   // antiMud: penalize crowding the muddy mid-L weak-chroma zone — SOFT membership (a color half a
@@ -295,7 +354,8 @@ export function scorePalette(p: Oklch[]): ScoreBreakdown {
   )
   const mutedness = clamp((0.07 - cMean) / 0.07, 0, 1)
   const hasPop = p.some((c) => c.C > 0.1 && (c.H < 35 || c.H > 115))
-  const deliberate = Math.max(mutedness * (hasPop ? 1 : 0.4), maxL < 0.52 ? 0.75 : 0)
+  // …and a figure-ground field's mid-ladder neutrals are the field, not mud
+  const deliberate = Math.max(mutedness * (hasPop ? 1 : 0.4), maxL < 0.52 ? 0.75 : 0, 0.85 * figureGround)
   const antiMud = 1 - clamp((mudShare - 0.3) / 0.5, 0, 1) * (1 - 0.6 * deliberate)
 
   // vibrancy: the most-saturated slot judged against ITS OWN headroom, with a real-chroma ramp so
@@ -306,12 +366,14 @@ export function scorePalette(p: Oklch[]): ScoreBreakdown {
   const grayDamp = 1 - 0.6 * clamp((grayFrac - 0.34) / 0.5, 0, 1)
   let maxVivid = 0
   for (let i = 0; i < n; i++) maxVivid = Math.max(maxVivid, rels[i] * smooth(Cs[i], 0.045, 0.11))
-  const vibrancy = maxVivid * grayDamp
+  // a figure-ground field is MOSTLY quiet on purpose; its figure's vividness counts at full strength
+  const vibrancy = maxVivid * Math.max(grayDamp, 0.92 * figureGround)
 
   // chromaticMass: how many slots genuinely carry a hue — FRACTIONAL credit (no cliff at the
-  // neutral boundary), and a gate on the total below so it cannot be averaged away.
+  // neutral boundary), and a gate on the total below so it cannot be averaged away. A true
+  // figure-ground field is vouched for (one earned figure IS the mass, by design).
   const chromaCount = Cs.reduce((s, c) => s + smooth(c, 0.04, 0.075), 0)
-  const chromaticMass = smooth(chromaCount, 1.8, Math.max(3, n * 0.6))
+  const chromaticMass = Math.max(smooth(chromaCount, 1.8, Math.max(3, n * 0.6)), 0.85 * figureGround)
 
   // pigment: chromatic colors near their hue's natural lightness read clean; far from it they fight
   // the gamut (dark yellow = olive, blazing-light deep blue = chalk). Chroma-weighted — the more

@@ -151,7 +151,7 @@ function interiorGenome(rng: Rng, anchorFracs: number[], aspect: number): GridGe
     marginFrac: 0,
     gutterFrac: 0,
     aspect,
-    strategy: 'free',
+    program: ['grow'],
     mirrorAxis: 'v',
   }
 }

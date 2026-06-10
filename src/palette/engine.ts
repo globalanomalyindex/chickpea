@@ -35,7 +35,11 @@ const CLIMB_STEPS = 12 // hill-climb refinements per elite
 /** Search a population of genomes, then hill-climb the top ELITES independently and keep the global
  * winner. Climbing several basins instead of one means a near-miss second genre (say, a ramp that
  * sampled slightly rough) can refine into the champion instead of losing to the safest first draw —
- * better palettes AND better variety across seeds. Returns the best raw OKLCH palette. */
+ * better palettes AND better variety across seeds.
+ *
+ * Every candidate is HARMONIZED before scoring, so selection judges exactly the palette that will
+ * ship. Scoring the raw expansion and harmonizing afterwards let the spread-stretch move a winner
+ * across a scoring boundary post-selection (measured: a champion that re-scored at 0.18). */
 function selectBest(rng: Rng, count: number): Oklch[] {
   interface Cand {
     g: Genome
@@ -45,7 +49,7 @@ function selectBest(rng: Rng, count: number): Oklch[] {
   const pop: Cand[] = []
   for (let i = 0; i < POPULATION; i++) {
     const g = sampleGenome(rng)
-    const pal = genomeToPalette(g, count, rng)
+    const pal = harmonize(genomeToPalette(g, count, rng))
     pop.push({ g, pal, s: scorePalette(pal).total })
   }
   pop.sort((a, b) => b.s - a.s)
@@ -63,9 +67,16 @@ function selectBest(rng: Rng, count: number): Oklch[] {
     }
     return hi < 0.52 || lo > 0.52
   }
+  // a quiet field carrying one or two saturated figures — the other rare region winner-take-all
+  // starves before refinement (same coverage logic as the keys; nothing about it is a style)
+  const isQuietField = (c: Cand): boolean => {
+    const quiet = c.pal.filter((col) => col.C <= 0.055).length
+    const figures = c.pal.filter((col) => col.C >= 0.1).length
+    return quiet >= c.pal.length - 2 && figures >= 1 && figures <= 2
+  }
   const elites: Cand[] = pop.slice(0, 2)
-  const key = pop.find(isKeyed)
-  if (key && !elites.includes(key)) elites.push(key)
+  const rare = pop.find((c) => isKeyed(c) || isQuietField(c))
+  if (rare && !elites.includes(rare)) elites.push(rare)
   else if (pop[2]) elites.push(pop[2])
 
   let best = pop[0]
@@ -75,7 +86,7 @@ function selectBest(rng: Rng, count: number): Oklch[] {
     for (let i = 0; i < CLIMB_STEPS; i++) {
       const amt = lerp(0.9, 0.3, i / Math.max(1, CLIMB_STEPS - 1))
       const g = mutateGenome(cur.g, rng, amt)
-      const pal = genomeToPalette(g, count, rng)
+      const pal = harmonize(genomeToPalette(g, count, rng))
       const s = scorePalette(pal).total
       if (s > cur.s) cur = { g, pal, s }
     }
@@ -85,6 +96,12 @@ function selectBest(rng: Rng, count: number): Oklch[] {
 }
 
 // ---- harmonizer ----
+
+/** The full finishing pass: usable lightness spread, no perceptual duplicates, hero first.
+ * Applied to every CANDIDATE before scoring (score what ships), not to the winner after. */
+function harmonize(cs: Oklch[]): Oklch[] {
+  return orderHeroFirst(dedupe(enforceSpread(cs)))
+}
 
 /** Guarantee the lightness range spans at least MIN_LIGHTNESS_SPREAD by stretching L around the
  * midpoint (perceptually even in OKLCH), so a composition always has a light, a dark, and a usable
@@ -182,11 +199,8 @@ function orderHeroFirst(cs: Oklch[]): Oklch[] {
 export function generatePaletteOklch(seed: number, count: number): Oklch[] {
   const n = Math.max(1, Math.round(count))
   const rng: Rng = mulberry32((seed ^ 0x9e3779b9) >>> 0)
-  let cs = selectBest(rng, n)
-  cs = enforceSpread(cs)
-  cs = dedupe(cs)
-  cs = orderHeroFirst(cs)
-  return cs
+  // candidates are harmonized before scoring inside the selector — the champion ships as judged
+  return selectBest(rng, n)
 }
 
 /** Map a harmonized OKLCH palette to the studio's `PaletteColor[]` (sRGB hex + truthful HSL readout). */

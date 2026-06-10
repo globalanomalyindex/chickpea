@@ -53,7 +53,8 @@ function selectBestGrid(rng: Rng, seed: number, dials: Dials): Grid {
   const elites: Cand[] = pop.slice(0, 2)
   // the genre slot is earned, not free: a special must already be within striking distance of the
   // leaders to get its climb (an unconditional slot let spirals win ~5× their genome share)
-  const special = pop.find((c) => c.g.strategy !== 'free')
+  const isSpecial = (c: Cand): boolean => c.g.program.some((s) => s === 'spiral' || s === 'echo' || s === 'mirror')
+  const special = pop.find(isSpecial)
   if (special && !elites.includes(special) && special.s > pop[1].s - 0.035) elites.push(special)
   else if (pop[2]) elites.push(pop[2])
 

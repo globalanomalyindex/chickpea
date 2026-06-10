@@ -107,16 +107,17 @@ describe('genomeToGrid — perfect tiling by construction', () => {
   })
 })
 
-describe('construction strategies (spiral / echo / mirror)', () => {
-  const force = (seed: number, strategy: 'spiral' | 'echo' | 'mirror') => {
+describe('construction programs (ordered developmental stages)', () => {
+  type Stage = 'grow' | 'lattice' | 'spiral' | 'echo' | 'mirror'
+  const force = (seed: number, program: Stage[]) => {
     const rng = mulberry32(seed)
-    const g = { ...sampleGenome(rng), strategy, targetLeaves: 12 }
+    const g = { ...sampleGenome(rng), program, targetLeaves: 12 }
     return genomeToGrid(g, seed, rng)
   }
 
   it('a spiral whirl is a valid tiling with crisp guides and a coherent ratio readout', () => {
     for (const seed of [3, 11, 27, 64]) {
-      const g = force(seed, 'spiral')
+      const g = force(seed, ['spiral'])
       expect(checkBounds(g.modules, 1e-9)).toBe(true)
       expect(checkTiling(g.modules, 1e-9).covered).toBe(true)
       expect(checkCrispGuides(g)).toBe(true)
@@ -127,16 +128,16 @@ describe('construction strategies (spiral / echo / mirror)', () => {
 
   it('an echo cascade is a valid tiling with crisp guides', () => {
     for (const seed of [5, 19, 42]) {
-      const g = force(seed, 'echo')
+      const g = force(seed, ['echo'])
       expect(checkBounds(g.modules, 1e-9)).toBe(true)
       expect(checkTiling(g.modules, 1e-9).covered).toBe(true)
       expect(checkCrispGuides(g)).toBe(true)
     }
   })
 
-  it('a mirror genome produces true bilateral symmetry: every module has its exact reflection', () => {
+  it('a grow → mirror program produces true bilateral symmetry: every module has its exact reflection', () => {
     for (const seed of [7, 23, 55]) {
-      const g = force(seed, 'mirror')
+      const g = force(seed, ['grow', 'mirror'])
       expect(checkBounds(g.modules, 1e-9)).toBe(true)
       expect(checkTiling(g.modules, 1e-9).covered).toBe(true)
       expect(checkCrispGuides(g)).toBe(true)
@@ -149,6 +150,37 @@ describe('construction strategies (spiral / echo / mirror)', () => {
           (o) => Math.abs(o.x - rx) < 1e-9 && Math.abs(o.y - ry) < 1e-9 && Math.abs(o.w - m.w) < 1e-9 && Math.abs(o.h - m.h) < 1e-9,
         )
         expect(hit).toBe(true)
+      }
+    }
+  })
+
+  it('order matters: the same stages in a different order build a different composition', () => {
+    const a = force(9, ['lattice', 'echo'])
+    const b = force(9, ['echo', 'lattice'])
+    expect(a.modules).not.toEqual(b.modules)
+    for (const g of [a, b]) {
+      expect(checkTiling(g.modules, 1e-9).covered).toBe(true)
+      expect(checkCrispGuides(g)).toBe(true)
+    }
+    expect(a.meta?.strategy).toBe('lattice → echo')
+    expect(b.meta?.strategy).toBe('echo → lattice')
+  })
+
+  it('chained programs (incl. double mirror = quadrant symmetry) stay valid tilings', () => {
+    const programs: Stage[][] = [
+      ['spiral', 'mirror'],
+      ['grow', 'mirror', 'spiral'],
+      ['lattice', 'mirror', 'mirror'],
+      ['grow', 'lattice', 'echo', 'mirror'],
+    ]
+    for (const program of programs) {
+      for (const seed of [2, 31]) {
+        const g = force(seed, program)
+        expect(checkBounds(g.modules, 1e-9)).toBe(true)
+        const t = checkTiling(g.modules, 1e-9)
+        expect(t.covered).toBe(true)
+        expect(t.disjoint).toBe(true)
+        expect(checkCrispGuides(g)).toBe(true)
       }
     }
   })

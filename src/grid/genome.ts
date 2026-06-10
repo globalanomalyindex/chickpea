@@ -66,15 +66,18 @@ const CANVAS_ASPECTS = [4 / 5, 5 / 4, 3 / 4, 4 / 3, 2 / 3, 3 / 2]
 const sampleAspect = (rng: Rng): number => (rng() < 0.58 ? 1 : pick(rng, CANVAS_ASPECTS))
 
 /**
- * The construction STRATEGY — the coordinated cut programs a leaf-by-leaf frontier can never walk
- * into by chance:
- *   free   — the original organic↔lattice spectrum (frontier growth / stamped lattice)
- *   spiral — a whirling-rectangles chain (the nautilus/sunflower structure): each turn slices a
- *            slab off the running cell and rotates a quarter, spiraling into an eye
- *   echo   — a self-similar cascade: the same voice split restamped into one child at each level
- *   mirror — bilateral symmetry: one half is grown, the other is its exact reflection
+ * One developmental STAGE of a grid's build program. A composition is no longer one construction:
+ * it is an ORDERED program of 1..4 stages, the way a body plan is an ordered sequence of
+ * developmental programs — and order matters ("spiral → mirror" is a double whirl; "mirror →
+ * spiral" is a symmetric base broken by one whirl). Mutation can reorder, drop, or append stages:
+ * evolution by heterochrony, not just by parameter drift.
+ *   grow    — frontier growth (the organic default)
+ *   lattice — stamp an aligned C×R grid (at the root, or into the dominant cell mid-program)
+ *   spiral  — whirling-rectangles chain into the dominant cell (nautilus/sunflower)
+ *   echo    — self-similar cascade into the dominant cell
+ *   mirror  — compress everything built so far into one half and reflect it exactly
  */
-export type GridStrategy = 'free' | 'spiral' | 'echo' | 'mirror'
+export type GridStage = 'grow' | 'lattice' | 'spiral' | 'echo' | 'mirror'
 
 export interface GridGenome {
   targetLeaves: number // desired module count — the universal complexity knob
@@ -88,12 +91,12 @@ export interface GridGenome {
   axisCoupling: number // 0..1 — P(override axis to cut the LONGER side) — anti-sliver, squares cells
   arityLambda: number // 0..3 — mean extra children per band (Poisson) — the binary↔lattice slider
   bandUniformity: number // 0..1 — P(a k>2 band is born with EVEN fractions i/k)
-  regularity: number // 0..1 — P(the grid is a stamped aligned lattice) + shared-ratio pressure
+  regularity: number // 0..1 — lattice-leaning: P(the program OPENS with a stamped lattice)
   marginFrac: number // 0..0.08 — outer poster margin (render-time inset; area preserved)
   gutterFrac: number // 0..0.03 — inter-cell gutter (render-time inset; area preserved)
   aspect: number // overall canvas aspect (w/h): 1 = square, else portrait/landscape
-  strategy: GridStrategy // the construction program (free / spiral / echo / mirror)
-  mirrorAxis: Axis // which center line a mirror genome reflects across
+  program: GridStage[] // the ordered developmental program (1..4 stages; never opens with mirror)
+  mirrorAxis: Axis // the center line the FIRST mirror stage reflects across (a second flips axis)
 }
 
 // ---- sampling ----
@@ -124,18 +127,12 @@ export function sampleGenome(rng: Rng, dials: Dials = DEFAULT_DIALS): GridGenome
 
   const voice = sampleVoice(rng, tn)
 
-  // construction strategy: mostly free growth; the coordinated programs (spiral/echo/mirror) are
-  // each a deliberate minority genre. tension leans spiral (dynamic) vs mirror (formal, calm).
-  // Rates are kept LOW because the specials over-win their share at selection (a spiral's strong
-  // hierarchy + single-ratio coherence wins ~3× its genome rate; measured 35% of seeds at a 10%
-  // rate — the same monoculture pressure the palette's ramp genre showed).
-  const spiralP = lerp(0.02, 0.045, tn)
-  const echoP = 0.06
-  const mirrorP = lerp(0.075, 0.045, tn)
-  const sRoll = rng()
-  const freeP = 1 - spiralP - echoP - mirrorP
-  const strategy: GridStrategy =
-    sRoll < freeP ? 'free' : sRoll < freeP + spiralP ? 'spiral' : sRoll < freeP + spiralP + echoP ? 'echo' : 'mirror'
+  const regularity = clamp(
+    (rng() < 0.35 ? lerp(0.55, 1, rng()) : lerp(0, 0.55, rng())) + (rh - 0.5) * 0.7,
+    0,
+    1,
+  )
+  const program = sampleProgram(rng, tn, regularity)
 
   return {
     targetLeaves: clamp(targetLeaves, 3, 28),
@@ -149,13 +146,54 @@ export function sampleGenome(rng: Rng, dials: Dials = DEFAULT_DIALS): GridGenome
     axisCoupling: rng() < 0.5 ? 0 : lerp(0, 1, rng()),
     arityLambda: clamp((rng() < 0.45 ? lerp(0, 0.3, rng()) : lerp(0.3, 2.5, rng())) + (rh - 0.5) * 1.4, 0, 3),
     bandUniformity: clamp(rng() + (rh - 0.5) * 0.5, 0, 1),
-    regularity: clamp((rng() < 0.35 ? lerp(0.55, 1, rng()) : lerp(0, 0.55, rng())) + (rh - 0.5) * 0.7, 0, 1),
+    regularity,
     marginFrac: rng() < 0.4 ? lerp(0.02, 0.08, rng()) : 0,
     gutterFrac: rng() < lerp(0.15, 0.7, rh) ? lerp(0.004, 0.03, rng()) : 0,
     aspect: sampleAspect(rng),
-    strategy,
+    program,
     mirrorAxis: rng() < 0.5 ? 'v' : 'h',
   }
+}
+
+/**
+ * Draw a developmental program: 1..4 ordered stages, weighted toward short (a single construction
+ * stays the common case; long chains are the rare exotic body plans). Mirror never opens (there is
+ * nothing to reflect yet) and appears at most twice (the second flips axis: quadrant symmetry).
+ * Stage rates stay LOW for the coordinated moves — specials over-win their genome share at
+ * selection (measured ~3× for spirals), the same monoculture pressure the palette's ramps showed.
+ */
+function sampleProgram(rng: Rng, tn: number, regularity: number): GridStage[] {
+  const r = rng()
+  const len = r < 0.6 ? 1 : r < 0.86 ? 2 : r < 0.97 ? 3 : 4
+  const program: GridStage[] = []
+  for (let i = 0; i < len; i++) {
+    const mirrors = program.filter((s) => s === 'mirror').length
+    const spiralP = lerp(0.025, 0.055, tn)
+    const echoP = 0.06
+    const mirrorP = i === 0 || mirrors >= 2 ? 0 : lerp(0.16, 0.1, tn)
+    const latticeP = (i === 0 ? 0.42 : 0.1) * regularity
+    const roll = rng()
+    let stage: GridStage
+    if (roll < spiralP) stage = 'spiral'
+    else if (roll < spiralP + echoP) stage = 'echo'
+    else if (roll < spiralP + echoP + mirrorP) stage = 'mirror'
+    else if (roll < spiralP + echoP + mirrorP + latticeP) stage = 'lattice'
+    else stage = 'grow'
+    program.push(stage)
+  }
+  return program
+}
+
+/** Keep a mutated program legal: non-empty, ≤4 stages, ≤2 mirrors, never opening with mirror.
+ * The mirror cap runs FIRST and a growth stage is guaranteed before rotating mirrors off the
+ * front — an all-mirror program (reachable when mutation drops the only growth stage) would
+ * otherwise rotate forever. */
+function legalizeProgram(program: GridStage[]): GridStage[] {
+  let mirrors = 0
+  let p = program.slice(0, 4).filter((s) => (s === 'mirror' ? ++mirrors <= 2 : true))
+  if (!p.some((s) => s !== 'mirror')) p = ['grow', ...p] // nothing to reflect: grow something first
+  while (p[0] === 'mirror') p.push(p.shift() as GridStage) // terminates: a non-mirror exists
+  return p.slice(0, 4)
 }
 
 // ---- mutation (hill-climb) ----
@@ -192,11 +230,25 @@ export function mutateGenome(g: GridGenome, rng: Rng, amt = 1): GridGenome {
     } else if (k === 3) {
       next.axisBias = clamp(0.5 + tri(rng) * 0.5, 0.05, 0.95)
     } else {
-      // strategy hops only EXIT a coordinated program, never enter one: with the specials scoring
-      // well, an enter-hop is a one-way door that converts free genomes into spirals mid-climb
-      // (the same ratchet that pushed the palette's ramps to 42% of seeds before it was removed)
-      if (g.strategy !== 'free' && rng() < 0.6) next.strategy = 'free'
-      else next.mirrorAxis = rng() < 0.5 ? 'v' : 'h'
+      // program mutations — the developmental moves. Order matters, so a pure REORDER (swap two
+      // adjacent stages: heterochrony) is its own move; drop and append are balanced against each
+      // other so the climb has no one-way door into the well-scoring specials (the ratchet that
+      // once pushed spirals to 35% of seeds). Appends lean toward grow/lattice/mirror; the
+      // strongest scorers (spiral, echo) only ENTER a program at sampling time.
+      const prog = [...g.program]
+      const r = rng()
+      if (r < 0.3 && prog.length > 1) {
+        const i = Math.floor(rng() * (prog.length - 1))
+        ;[prog[i], prog[i + 1]] = [prog[i + 1], prog[i]]
+      } else if (r < 0.55 && prog.length > 1) {
+        prog.splice(Math.floor(rng() * prog.length), 1)
+      } else if (r < 0.78 && prog.length < 4) {
+        const APPENDABLE: GridStage[] = ['grow', 'lattice', 'mirror']
+        prog.push(pick(rng, APPENDABLE))
+      } else {
+        next.mirrorAxis = rng() < 0.5 ? 'v' : 'h'
+      }
+      next.program = legalizeProgram(prog)
     }
   }
   if (!next.voice.includes(next.primaryRatio)) next.primaryRatio = next.voice[0]
@@ -386,18 +438,17 @@ function layEcho(root: Cell, g: GridGenome, rng: Rng, target: number): { leaves:
 }
 
 /**
- * Bilateral symmetry: cut the canvas at its center line, grow ONE half freely, and reflect it. The
- * reflection is exact: every mirrored coordinate is computed once (memoized 1−x) and shared by all
- * cells that touch it, so reflected edges are `===` just like slice-tree edges, and horizontal
- * guides reflect onto themselves (one guide serves both halves). Guillotine randomness essentially
- * never lands on symmetry by chance; as a program it is one cut and a map.
+ * Bilateral symmetry as a TRANSFORM: compress everything built so far into one half (every
+ * coordinate × 0.5 — exact in floating point) and reflect it across the center line. Because it
+ * acts on the current state rather than the root, it composes: run it after a spiral and you get a
+ * double whirl; run it early and let later stages break the symmetry. The reflection is exact:
+ * every mirrored coordinate is computed once (memoized 1−x) and shared by all cells that touch it,
+ * so reflected edges are `===` just like slice-tree edges, and cuts parallel to the mirror keep
+ * their position (one guide serves both halves). Parent-relative fracs survive both maps (an
+ * affine squeeze preserves proportions), so every label stays truthful.
  */
-function mirrorGrow(root: Cell, g: GridGenome, rng: Rng, target: number, aspect: number): { leaves: Cell[]; cuts: CutRef[] } {
-  const axis = g.mirrorAxis
-  const { children, cuts } = splitCell(root, axis, [0.5])
-  const leaves: Cell[] = [children[0]]
-  const allCuts: CutRef[] = [...cuts]
-  growFrontier(leaves, allCuts, g, rng, Math.max(2, Math.ceil(target / 2)), aspect)
+function mirrorAll(leaves: Cell[], cuts: CutRef[], axis: Axis): { leaves: Cell[]; cuts: CutRef[] } {
+  const half = (v: number): number => v * 0.5
   const memo = new Map<number, number>()
   const mir = (v: number): number => {
     let m = memo.get(v)
@@ -407,17 +458,44 @@ function mirrorGrow(root: Cell, g: GridGenome, rng: Rng, target: number, aspect:
     }
     return m
   }
-  const mirroredLeaves: Cell[] = leaves.map((c) =>
+  const squeezed: Cell[] = leaves.map((c) =>
+    axis === 'v'
+      ? { ...c, x0: half(c.x0), x1: half(c.x1) }
+      : { ...c, y0: half(c.y0), y1: half(c.y1) },
+  )
+  const squeezedCuts: CutRef[] = cuts.map((c) =>
+    c.axis === axis ? { ...c, pos: half(c.pos), lo: half(c.lo), hi: half(c.hi) } : c,
+  )
+  const mirroredLeaves: Cell[] = squeezed.map((c) =>
     axis === 'v'
       ? { x0: mir(c.x1), x1: mir(c.x0), y0: c.y0, y1: c.y1, axis: c.axis, depth: c.depth }
       : { x0: c.x0, x1: c.x1, y0: mir(c.y1), y1: mir(c.y0), axis: c.axis, depth: c.depth },
   )
-  const mirroredCuts: CutRef[] = allCuts.map((c) =>
-    c.axis === axis
-      ? { axis: c.axis, pos: mir(c.pos), frac: 1 - c.frac, lo: mir(c.hi), hi: mir(c.lo), depth: c.depth }
-      : c, // cuts parallel to the mirror keep their position — one guide serves both halves
-  )
-  return { leaves: [...leaves, ...mirroredLeaves], cuts: [...allCuts, ...mirroredCuts] }
+  const mirroredCuts: CutRef[] = squeezedCuts
+    .filter((c) => c.axis === axis) // perpendicular cuts reflect onto themselves; one copy suffices
+    .map((c) => ({ axis: c.axis, pos: mir(c.pos), frac: 1 - c.frac, lo: mir(c.hi), hi: mir(c.lo), depth: c.depth }))
+  const center: CutRef = { axis, pos: 0.5, frac: 0.5, lo: 0, hi: 1, depth: 0 }
+  return {
+    leaves: [...squeezed, ...mirroredLeaves],
+    cuts: [...squeezedCuts, center, ...mirroredCuts],
+  }
+}
+
+/** Index of the largest leaf that can still be split (the dominant cell a mid-program stage
+ * builds into); −1 if none. */
+function largestSplittable(leaves: Cell[]): number {
+  let best = -1
+  let bestA = -1
+  for (let i = 0; i < leaves.length; i++) {
+    if (!canSplit(leaves[i])) continue
+    const c = leaves[i]
+    const a = (c.x1 - c.x0) * (c.y1 - c.y0)
+    if (a > bestA) {
+      bestA = a
+      best = i
+    }
+  }
+  return best
 }
 
 /** Grow `leaves` by frontier expansion until it reaches `target` (or no cell can be split). Each step
@@ -521,47 +599,88 @@ function buildRatios(cuts: CutRef[], modules: Module[]): { ratios: RatioRef[]; d
   return { ratios, distinct: counts.size }
 }
 
-/** Expand a genome into a finished Grid. Pure given `rng`. Tiling/bounds hold by construction. */
+/** Display names for the program readout: full names solo, short tokens in a chain. */
+const STAGE_FULL: Record<GridStage, string> = {
+  grow: 'organic growth',
+  lattice: 'stamped lattice',
+  spiral: 'spiral whirl',
+  echo: 'echo cascade',
+  mirror: 'mirrored',
+}
+
+/** The truthful build label: "spiral whirl" solo, "lattice → echo → mirror" as a chain. */
+export function programLabel(program: GridStage[]): string {
+  if (program.length === 1) return STAGE_FULL[program[0]]
+  return program.join(' → ')
+}
+
+/** Apply one developmental stage to the working tiling. `cumTarget` is the leaf count the
+ * composition should be at once this stage finishes (mirror ignores it — it doubles instead). */
+function applyStage(
+  stage: GridStage,
+  state: { leaves: Cell[]; cuts: CutRef[] },
+  g: GridGenome,
+  rng: Rng,
+  cumTarget: number,
+  axisForMirror: Axis,
+): void {
+  if (stage === 'mirror') {
+    const m = mirrorAll(state.leaves, state.cuts, axisForMirror)
+    state.leaves = m.leaves
+    state.cuts = m.cuts
+    return
+  }
+  if (stage === 'grow') {
+    growFrontier(state.leaves, state.cuts, g, rng, cumTarget, g.aspect)
+    return
+  }
+  // the structural stages (lattice / spiral / echo) build INTO a cell: the root when the canvas is
+  // still whole, otherwise the dominant (largest splittable) cell of the composition so far
+  const idx = state.leaves.length === 1 ? 0 : largestSplittable(state.leaves)
+  if (idx < 0) return
+  const cell = state.leaves[idx]
+  const cellAspect = ((cell.x1 - cell.x0) * g.aspect) / (cell.y1 - cell.y0 || 1)
+  const budget = Math.max(stage === 'lattice' ? 4 : 4, Math.min(cumTarget - state.leaves.length + 1, stage === 'lattice' ? 9 : 8))
+  const laid =
+    stage === 'lattice'
+      ? layLattice(cell, g, rng, budget, cellAspect)
+      : stage === 'spiral'
+        ? laySpiral(cell, g, rng, Math.min(budget, 8), g.aspect)
+        : layEcho(cell, g, rng, budget)
+  state.leaves.splice(idx, 1, ...laid.leaves)
+  state.cuts.push(...laid.cuts)
+}
+
+/** Expand a genome into a finished Grid. Pure given `rng`. Tiling/bounds hold by construction:
+ * every stage either splits cells via the slice-tree or applies an exact affine mirror, so the
+ * invariant is closed under the whole program. */
 export function genomeToGrid(g: GridGenome, seed: number, rng: Rng): Grid {
   const root: Cell = { x0: 0, x1: 1, y0: 0, y1: 1, axis: null, depth: 0 }
-  let leaves: Cell[] = [root]
-  let cuts: CutRef[] = []
-  let lattice = false
-  let strategyUsed = 'unified guillotine slice-tree'
+  const state = { leaves: [root] as Cell[], cuts: [] as CutRef[] }
+  const program = legalizeProgram(g.program)
 
-  if (g.strategy === 'spiral') {
-    // the whirl skeleton, then frontier growth tops up the budget by subdividing the big arms —
-    // a pure 5-cell whirl is gorgeous but reads under-built at higher complexity
-    const budget = Math.min(Math.max(4, g.targetLeaves - 1), 8)
-    const laid = laySpiral(root, g, rng, budget, g.aspect)
-    leaves = laid.leaves
-    cuts = laid.cuts
-    if (leaves.length < g.targetLeaves) growFrontier(leaves, cuts, g, rng, g.targetLeaves, g.aspect)
-    strategyUsed = 'spiral whirl'
-  } else if (g.strategy === 'echo') {
-    const laid = layEcho(root, g, rng, Math.max(4, Math.round(g.targetLeaves * 0.8)))
-    leaves = laid.leaves
-    cuts = laid.cuts
-    if (leaves.length < g.targetLeaves) growFrontier(leaves, cuts, g, rng, g.targetLeaves, g.aspect)
-    strategyUsed = 'echo (self-similar cascade)'
-  } else if (g.strategy === 'mirror') {
-    const laid = mirrorGrow(root, g, rng, g.targetLeaves, g.aspect)
-    leaves = laid.leaves
-    cuts = laid.cuts
-    strategyUsed = 'mirrored (bilateral symmetry)'
-  } else {
-    lattice = rng() < g.regularity
-    if (lattice) {
-      const broken = rng() < 1 - g.regularity
-      const baseCount = broken ? Math.max(4, Math.round(g.targetLeaves * 0.6)) : g.targetLeaves
-      const laid = layLattice(root, g, rng, baseCount, g.aspect)
-      leaves = laid.leaves
-      cuts = laid.cuts
-      if (broken) growFrontier(leaves, cuts, g, rng, g.targetLeaves, g.aspect)
+  // budget: mirrors double the leaf count, so the growth stages share the pre-mirror target;
+  // cumulative targets step evenly toward it (and scale up past each mirror already applied)
+  const mirrors = program.filter((s) => s === 'mirror').length
+  const growthStages = Math.max(1, program.length - mirrors)
+  const preTarget = Math.max(2, Math.round(g.targetLeaves / 2 ** mirrors))
+  let gi = 0
+  let mirrorsDone = 0
+  for (const stage of program) {
+    if (stage === 'mirror') {
+      const axis: Axis = mirrorsDone === 0 ? g.mirrorAxis : g.mirrorAxis === 'v' ? 'h' : 'v'
+      applyStage(stage, state, g, rng, 0, axis)
+      mirrorsDone++
     } else {
-      growFrontier(leaves, cuts, g, rng, g.targetLeaves, g.aspect)
+      gi++
+      const cum = Math.max(2, Math.round((preTarget * gi) / growthStages)) * 2 ** mirrorsDone
+      applyStage(stage, state, g, rng, cum, g.mirrorAxis)
     }
   }
+  const leaves = state.leaves
+  const cuts = state.cuts
+  const lattice = program[0] === 'lattice'
+  const strategyUsed = programLabel(program)
 
   const uniq = uniqueCuts(cuts)
   const guides: Guide[] = uniq.map((c) => ({ axis: c.axis, pos: c.pos }))

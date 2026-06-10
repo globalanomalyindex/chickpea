@@ -7,6 +7,16 @@ import type { Dials } from '../src/grid/genome'
 
 const mean = (a: number[]) => (a.length ? a.reduce((s, v) => s + v, 0) / a.length : 0)
 const pct = (n: number, total: number) => +((100 * n) / total).toFixed(1)
+const histo = (xs: number[]) => {
+  const h: Record<string, number> = {}
+  for (const x of xs) h[x] = (h[x] ?? 0) + 1
+  return h
+}
+const topK = (xs: string[], k: number) => {
+  const h = new Map<string, number>()
+  for (const x of xs) h.set(x, (h.get(x) ?? 0) + 1)
+  return [...h.entries()].sort((a, b) => b[1] - a[1]).slice(0, k)
+}
 
 function analyze(seed: number, dials: Dials) {
   const g = generateGrid(seed, dials)
@@ -20,14 +30,16 @@ function analyze(seed: number, dials: Dials) {
   const sb = scoreGrid(g, dials)
   const valid = checkBounds(g.modules, 1e-9) && checkTiling(g.modules, 1e-9).covered && checkCrispGuides(g)
   const areaHerf = areas.reduce((s, a) => s + a * a, 0)
-  const genome = g.meta?.genome as { strategy?: string } | undefined
+  const genome = g.meta?.genome as { program?: string[] } | undefined
+  const program = genome?.program ?? ['grow']
   return {
     seed,
     modules: g.modules.length,
     guides: g.guides.length,
     score: +sb.total.toFixed(3),
     valid,
-    strategy: genome?.strategy ?? 'free',
+    program,
+    chain: program.join('→'),
     aspect: +(g.aspect ?? 1).toFixed(3),
     effCells: +(1 / areaHerf).toFixed(2),
     maxAspect: +Math.max(...aspects).toFixed(2),
@@ -73,10 +85,14 @@ const stats = {
   // --- style coverage: styles should EMERGE, none named ---
   pctNonSquare: pct(all.filter((a) => Math.abs(a.aspect - 1) > 0.01).length, N),
   pctLattice: pct(all.filter((a) => a.lattice).length, N),
-  // --- coordinated-strategy emergence (the genres frontier growth can't reach) ---
-  pctSpiral: pct(all.filter((a) => a.strategy === 'spiral').length, N),
-  pctEcho: pct(all.filter((a) => a.strategy === 'echo').length, N),
-  pctMirror: pct(all.filter((a) => a.strategy === 'mirror').length, N),
+  // --- coordinated-stage emergence (the genres frontier growth can't reach) ---
+  pctSpiral: pct(all.filter((a) => a.program.includes('spiral')).length, N),
+  pctEcho: pct(all.filter((a) => a.program.includes('echo')).length, N),
+  pctMirror: pct(all.filter((a) => a.program.includes('mirror')).length, N),
+  // --- developmental programs: length spread + the chains selection favors ---
+  programLengths: histo(all.map((a) => a.program.length)),
+  pctMultiStage: pct(all.filter((a) => a.program.length > 1).length, N),
+  topChains: topK(all.map((a) => a.chain), 8),
   pctClearlyLattice: pct(all.filter((a) => a.alignment > 0.8 && a.crisp > 0.7).length, N),
   pctClearHierarchy: pct(all.filter((a) => a.hierarchy > 0.45).length, N),
   pctHighRatioCoh: pct(all.filter((a) => a.ratioCoh > 0.7).length, N),

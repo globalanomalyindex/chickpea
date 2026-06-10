@@ -6,14 +6,12 @@ const CREAM = '#f4f0e8'
 const HAIR = 'rgba(244,240,232,0.22)'
 const CHIP = 'rgba(26,29,32,0.55)'
 
-/** Short, honest name for how this composition was constructed (engineering flavor for the key). */
+/** Short, honest name for how this composition was constructed (engineering flavor for the key):
+ * a single stage by its full name, a multi-stage program as the ordered chain it ran. */
 function strategyLabel(grid: Grid): string {
   if (grid.meta?.anchored) return 'anchored to your cuts'
-  const s = (grid.meta?.genome as { strategy?: string } | undefined)?.strategy
-  if (s === 'spiral') return 'spiral whirl'
-  if (s === 'echo') return 'echo cascade'
-  if (s === 'mirror') return 'mirrored'
-  return grid.meta?.lattice ? 'stamped lattice' : 'organic growth'
+  const s = grid.meta?.strategy
+  return typeof s === 'string' && s.length > 0 ? s : 'organic growth'
 }
 
 /** The canvas aspect as a familiar name when it is one ("3:2"), else a decimal. */

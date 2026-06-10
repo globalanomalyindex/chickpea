@@ -79,11 +79,30 @@ describe('pigment: colors near their hue\'s natural lightness read clean', () =>
   })
 })
 
-describe('duds still fail (the cross-checks survived the new roads)', () => {
-  it('a lone vivid chip among grays cannot ride any road to a high score', () => {
-    const chip = [c(0.6, 0.2, 30), c(0.2, 0.01, 0), c(0.4, 0.012, 90), c(0.55, 0.015, 180), c(0.75, 0.01, 270), c(0.9, 0.008, 45)]
-    expect(scorePalette(chip).total).toBeLessThan(0.65)
+describe('figure-ground (an earned figure on a designed field) vs gray padding', () => {
+  it('a DESIGNED neutral ladder with one saturated figure scores as the principle it is', () => {
+    // a clean charcoal→cream ladder + one deep vermilion at mid lightness ("cool grays/whites/
+    // creams with one deep red") — emerges from the continuous axes, never stamped
+    const field = [c(0.6, 0.2, 30), c(0.2, 0.01, 0), c(0.4, 0.012, 90), c(0.55, 0.015, 180), c(0.75, 0.01, 270), c(0.9, 0.008, 45)]
+    expect(scorePalette(field).total).toBeGreaterThan(0.72)
   })
+
+  it('the same chip on a CLUMPED, designless gray pile still fails', () => {
+    // no ladder (all five grays within a 0.1 lightness band) — padding, not a field
+    const dud = [c(0.6, 0.2, 30), c(0.48, 0.01, 0), c(0.5, 0.012, 90), c(0.53, 0.015, 180), c(0.55, 0.01, 270), c(0.58, 0.008, 45)]
+    expect(scorePalette(dud).total).toBeLessThan(0.65)
+  })
+
+  it('half-hearted mid-chroma filler is neither field nor figure and earns nothing from the term', () => {
+    const muddy = [c(0.6, 0.2, 30), c(0.25, 0.07, 60), c(0.45, 0.08, 120), c(0.6, 0.07, 200), c(0.75, 0.075, 280), c(0.9, 0.01, 45)]
+    const s = scorePalette(muddy)
+    // it may still score as something else, but NOT via the figure-ground allowances: the
+    // gray-padding gates judge it on its own merits
+    expect(s.total).toBeLessThan(0.85)
+  })
+})
+
+describe('duds still fail (the cross-checks survived the new roads)', () => {
 
   it('a 5+-family scatter is damped, not rewarded as "even spacing"', () => {
     const scatter = [c(0.3, 0.12, 0), c(0.45, 0.13, 60), c(0.55, 0.12, 125), c(0.65, 0.13, 185), c(0.75, 0.12, 250), c(0.85, 0.11, 310)]

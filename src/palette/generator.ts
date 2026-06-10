@@ -129,15 +129,17 @@ export function sampleGenome(rng: Rng): Genome {
   const lLo = clamp(lMid - span / 2, 0.12, 0.86)
   const lHi = clamp(lMid + span / 2, 0.24, 0.92)
 
-  // neutral-bias (suppress non-accent chroma → "neutrals + pops") is one genre among many, not the
-  // default — less frequent and less extreme so palettes don't skew desaturated.
-  const neutralBias = rng() < 0.3 ? lerp(0.3, 0.7, rng()) : 0
+  // neutral-bias: how much non-accent chroma is withheld. A CONTINUOUS axis running all the way to
+  // near-total suppression — at the deep end, with a cast and a wide ladder happening to coincide,
+  // a quiet field carrying one saturated signal simply emerges. No genre is stamped here: pigment
+  // is priced like nature prices it (spent only where it earns), and the dice do the rest.
+  const neutralBias = rng() < 0.3 ? lerp(0.3, 0.96, Math.pow(rng(), 0.6)) : 0
 
   // atmospheric cast: ~35% of genomes mix a shared OKLab offset into every color — one light source.
   const castOn = rng() < 0.35
   const castMag = castOn ? lerp(0.004, 0.016, rng()) : 0
   const castAng = rng() * Math.PI * 2
-  return {
+  const genome: Genome = {
     modeCenters: centers,
     modeWeights: weights,
     modeKappaMul: kappaMuls,
@@ -155,6 +157,8 @@ export function sampleGenome(rng: Rng): Genome {
     castA: castMag * Math.cos(castAng),
     castB: castMag * Math.sin(castAng),
   }
+
+  return genome
 }
 
 /** Mutate a genome for the selector's hill-climb. Mostly small Gaussian nudges, but 25% of the time

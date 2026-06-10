@@ -147,6 +147,14 @@ const stats = {
   // --- genre coverage for the upgraded engine ---
   pctRamp: pct(all.filter(isRamp).length), // monotone hue travel with lightness (sunset/ocean)
   pctStrongRamp: pct(all.filter(isStrongRamp).length),
+  // figure-ground: a mostly-neutral field (≥ n-2 slots under C 0.055) carrying 1-2 saturated figures
+  pctFigureGround: pct(
+    all.filter((a) => {
+      const vivid = a.colors.filter((c) => c.C >= 0.11).length
+      const neutral = a.colors.filter((c) => c.C <= 0.055).length
+      return vivid >= 1 && vivid <= 2 && neutral >= a.colors.length - 2
+    }).length,
+  ),
   pctLowKeyMoody: pct(all.filter((a) => lightestL(a) < 0.55).length),
   pctDominantFamily: pct(all.filter(hasDominantFamily).length), // 60-30-10 hue structure
   clusterHistogram: histo(all.map(clusterCount)),
