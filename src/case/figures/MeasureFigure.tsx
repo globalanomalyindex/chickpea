@@ -68,7 +68,7 @@ export function MeasureFigure() {
   return (
     <Figure
       index="04"
-      title="The Measure primitive"
+      title="the measure primitive"
       caption="the hero's signature move, in miniature. hover the space between two letters: the seam springs apart and a dimension arrow measures the gap it just exposed, invisible spacing made literal. the same primitive draws every grid's skeleton on demand. springs, not easing, are what make it read as alive."
     >
       <div

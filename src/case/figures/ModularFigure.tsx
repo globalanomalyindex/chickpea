@@ -25,7 +25,7 @@ export function ModularFigure() {
   return (
     <Figure
       index="03"
-      title="Swiss modular"
+      title="swiss modular"
       caption="margins, columns, rows, gutters: the grid that built mid-century swiss design. drag the counts and the lattice rebuilds: every module snaps to the column and row tracks exactly, with no drift. order you can set by hand, generated within the rules."
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>

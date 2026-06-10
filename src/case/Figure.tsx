@@ -45,13 +45,12 @@ export function Figure({ index, title, children, caption }: FigureProps) {
         }}
       >
         <span style={{ fontSize: 11, letterSpacing: '0.18em', color: STEEL }}>
-          FIG&nbsp;{index}
+          fig&nbsp;{index}
         </span>
         <span
           style={{
             fontSize: 11,
             letterSpacing: '0.14em',
-            textTransform: 'uppercase',
             color: SLATE,
             opacity: 0.65,
           }}
@@ -113,7 +112,6 @@ export function FigureSlider({
       <span
         style={{
           letterSpacing: '0.12em',
-          textTransform: 'uppercase',
           opacity: 0.6,
           minWidth: '7.5em',
         }}

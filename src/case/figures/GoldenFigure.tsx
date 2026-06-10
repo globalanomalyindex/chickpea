@@ -43,7 +43,7 @@ export function GoldenFigure() {
   return (
     <Figure
       index="02"
-      title="Nature-math · the golden section"
+      title="nature-math · the golden section"
       caption="repeatedly divide the canvas at the golden point, 0.618 of the side, alternating axis each time. the guides land exactly on φ positions, and the φ-rectangle the subdivision keeps producing measures 1.618 to three places. mathematics from growth and shells, made into a grid."
     >
       <FigureSlider label="depth" value={depth} min={1} max={10} onChange={setDepth} />
