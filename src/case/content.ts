@@ -102,10 +102,24 @@ export const SECTIONS: Section[] = [
     eyebrow: 'see it run',
     heading: 'open the studio, break the hero, read the math',
     body: [
-      'the case for a system you can see the math behind is best made by using one. generate from scratch, drag the dials, toggle the reveal, export a transparent skeleton, or go back to the hero and pull the title apart with your cursor. it does not break. i checked five hundred times.',
+      'the case for a system you can see the math behind is best made by using one. generate from scratch, drag the dials, toggle the reveal, export a transparent skeleton, or go back to the hero and pull the title apart with your cursor. it does not break. i checked five hundred times :)',
     ],
   },
 ]
+
+/**
+ * The coda: the sincere note the whole thing is actually about, rendered last. Uses the {{tint}}
+ * markup like the prose ({{cosmic}} sweeps a nebula). No jokes here; this is the one that means it.
+ */
+export const CODA = {
+  eyebrow: 'the part underneath',
+  heading: 'nature was never trying to design anything',
+  body: [
+    'every principle on this page is real, and it earns its keep; i leaned on all of it chasing this idea down. but the thing underneath, the part that actually moves me, is quieter: none of it was ever invented. the golden angle in a {{sunflower}} head was not solved by the sunflower. nature kept no notebook, drew no rules, never once stopped to ask how do i design this. it just did, and it was right, and it has been getting more right for four billion years with nobody grading it.',
+    'what we call design is the name we pinned on that afterward, for our own comfort, a label on a genius that was never ours to claim. so when i go looking for an answer i do not reach for a trend or a grid system or my own taste, i reach for the {{cosmic}} intelligence already running the experiment: forever generating, forever selecting, forever improving, with no ego and no deadline.',
+    'look closely enough at anything alive and you are not reading design the way we were taught it. you are watching nature recognize its own genius. this whole studio is just me trying to listen.',
+  ],
+}
 
 /**
  * Works and ideas the prose cites by [[id]]. Order here is the printed footnote number; REF_INDEX

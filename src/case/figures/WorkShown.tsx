@@ -51,6 +51,13 @@ export function WorkShown() {
         at a time and reading the distribution, then captured straight from the test run. if it says 100
         percent, i counted all of it.
       </p>
+      <p style={{ margin: '14px 0 0', maxWidth: '64ch', fontFamily: 'var(--font-display)', fontSize: 'clamp(15px, 2vw, 17px)', lineHeight: 1.62, color: '#f4f0e8', opacity: 0.74 }}>
+        the harness lives in the repo. <Mono>npx vite-node scripts/sample-grids.ts</Mono> rolls {M.seeds} seeds
+        through the real grid engine and prints the distribution; the palette twin does the same; the test
+        column is a <Mono>vitest run</Mono> captured as json. a tiny script, <Mono>emit-case-data.ts</Mono>,
+        stitches those together into a data file this page imports, so every number here regenerates from a
+        command instead of from my memory of it.
+      </p>
       <p style={{ margin: '10px 0 0', fontFamily: 'var(--font-mono)', fontSize: 11.5, color: '#f4f0e8', opacity: 0.5 }}>
         {M.tests.total} tests across {M.tests.suites} files, all green · regenerated {M.generatedAt} from commit {M.commit}
       </p>
@@ -153,6 +160,15 @@ export function WorkShown() {
         </Figure>
       </div>
     </section>
+  )
+}
+
+/** An inline code token (a real command), set apart in mono on a faint chip. */
+function Mono({ children }: { children: string }) {
+  return (
+    <code style={{ fontFamily: 'var(--font-mono)', fontSize: '0.86em', background: 'rgba(0,0,0,0.18)', padding: '0.05em 0.35em', borderRadius: 3, whiteSpace: 'nowrap' }}>
+      {children}
+    </code>
   )
 }
 

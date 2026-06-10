@@ -153,7 +153,9 @@ const WORD_RAMPS: Record<string, Stop[]> = {
   sunflower: [[0.82, 0.14, 92], [0.74, 0.14, 76], [0.88, 0.13, 100], [0.72, 0.13, 66]],
   wildflower: [[0.74, 0.16, 344], [0.84, 0.13, 92], [0.72, 0.13, 232], [0.76, 0.15, 26], [0.72, 0.15, 150]],
   neutrals: [[0.72, 0.014, 250], [0.82, 0.01, 250], [0.9, 0.008, 90], [0.78, 0.012, 250]],
-  charcoal: [[0.32, 0.02, 252], [0.4, 0.022, 252], [0.28, 0.018, 252], [0.38, 0.02, 252]],
+  // charcoal is the one word that must stay dark; held well below the slate field for downward
+  // contrast (no background chip — a light cream halo on each letter does the separating)
+  charcoal: [[0.27, 0.02, 252], [0.34, 0.022, 252], [0.24, 0.018, 252], [0.31, 0.02, 252]],
   cream: [[0.92, 0.03, 82], [0.88, 0.035, 70], [0.94, 0.02, 92]],
   cardinal: [[0.62, 0.2, 26], [0.66, 0.2, 16], [0.6, 0.19, 32], [0.68, 0.18, 20]],
   snow: [[0.93, 0.02, 232], [0.9, 0.035, 220], [0.95, 0.015, 245]],
@@ -163,6 +165,8 @@ const WORD_RAMPS: Record<string, Stop[]> = {
   fern: [[0.64, 0.14, 148], [0.74, 0.16, 136], [0.68, 0.14, 158], [0.78, 0.15, 130]],
   // the white-silver ratio (hakugin-hi): crimson + cream, the hinomaru read without the cliché
   hakugin: [[0.62, 0.2, 22], [0.92, 0.025, 80], [0.6, 0.2, 18], [0.9, 0.03, 84]],
+  // a nebula sweep: violet → magenta → deep blue → cyan → a pale star, for "cosmic"
+  cosmic: [[0.66, 0.17, 300], [0.72, 0.17, 338], [0.6, 0.16, 268], [0.74, 0.13, 222], [0.86, 0.05, 250]],
 }
 
 /** True when a word (case-insensitive) has a dedicated letter ramp. */
@@ -196,10 +200,9 @@ function wordColors(key: string, n: number): string[] {
  * can borrow a ramp whose key differs from the displayed text). Spaces stay uncolored; the color
  * index counts only letters so the ramp is even across the word.
  */
-/** words that are deliberately DARK; they ride a faint cream chip (like a swatch on paper) so they
- * read against the slate field, since lifting their lightness would erase the very identity (a
- * "charcoal" the color of cream is not charcoal). */
-const CHIP_WORDS = new Set(['charcoal'])
+/** words painted in deliberately DARK colors; they get a soft CREAM halo (not a background chip,
+ * which would read as a highlight) so the dark glyphs separate from the slate without shouting. */
+const DARK_WORDS = new Set(['charcoal'])
 
 export function TintWord({
   children,
@@ -213,25 +216,17 @@ export function TintWord({
   const key = (ramp ?? children).trim().toLowerCase()
   const letters = Array.from(children)
   const colors = wordColors(key, letters.filter((c) => c !== ' ').length)
-  // a tight dark halo lifts any letter color off the slate without tinting it; the chip is the
-  // fallback for the dark/neutral words a halo can't rescue
-  const chip = CHIP_WORDS.has(key)
-  const halo = chip ? '0 0 1px rgba(244,240,232,0.5)' : '0 1px 1.5px rgba(20,22,25,0.45)'
+  // a tight halo lifts any letter off the slate without a box: a dark halo for light/mid colors,
+  // a cream halo for the few genuinely dark words so they read by edge, not by highlight
+  const halo = DARK_WORDS.has(key)
+    ? '0 0 2px rgba(244,240,232,0.55), 0 0 1px rgba(244,240,232,0.7)'
+    : '0 1px 1.5px rgba(20,22,25,0.45)'
   let ci = 0
   return (
-    <span
-      aria-label={children}
-      data-tint={key}
-      style={{
-        ...(chip
-          ? { background: 'rgba(244,240,232,0.9)', borderRadius: 3, padding: '0 0.18em', boxDecorationBreak: 'clone', WebkitBoxDecorationBreak: 'clone' }
-          : null),
-        ...style,
-      }}
-    >
+    <span aria-label={children} data-tint={key} style={style}>
       {letters.map((ch, i) =>
         ch === ' ' ? ' ' : (
-          <span key={i} aria-hidden style={{ color: colors[ci++], textShadow: chip ? undefined : halo }}>
+          <span key={i} aria-hidden style={{ color: colors[ci++], textShadow: halo }}>
             {ch}
           </span>
         ),

@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import { BrandMenu } from '../app/BrandMenu'
 import { RainbowText, NatureWord } from '../components/colorWords'
-import { SECTIONS, TITLE, REFERENCES, type Section } from './content'
+import { SECTIONS, TITLE, REFERENCES, CODA, type Section } from './content'
 import { renderProse } from './prose'
 import { SubdivisionFigure } from './figures/SubdivisionFigure'
 import { GoldenFigure } from './figures/GoldenFigure'
@@ -55,6 +55,7 @@ export function CaseStudy() {
 
         <WorkShown />
         <References />
+        <Coda />
 
         <CloseLinks />
       </article>
@@ -161,6 +162,55 @@ function Prose({ section }: { section: Section }) {
             lineHeight: 1.62,
             color: CREAM,
             opacity: 0.86,
+          }}
+        >
+          {renderProse(p)}
+        </p>
+      ))}
+    </section>
+  )
+}
+
+/** The coda: the sincere closing meditation, set apart from the prose with a hairline and a little
+ * more air. The galaxy-tinted "cosmic" lands here. */
+function Coda() {
+  return (
+    <section
+      aria-labelledby="coda-h"
+      style={{
+        margin: 'clamp(56px, 11vw, 120px) 0 0',
+        paddingTop: 'clamp(40px, 8vw, 72px)',
+        borderTop: `1px solid ${HAIR_CREAM}`,
+      }}
+    >
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.18em', color: STEEL_ON_SLATE, marginBottom: 18 }}>
+        {CODA.eyebrow}
+      </div>
+      <h2
+        id="coda-h"
+        style={{
+          margin: 0,
+          fontFamily: 'var(--font-display)',
+          fontWeight: 400,
+          fontSize: 'clamp(30px, 5.4vw, 52px)',
+          lineHeight: 1.08,
+          letterSpacing: '-0.02em',
+          maxWidth: '18ch',
+        }}
+      >
+        {CODA.heading}
+      </h2>
+      {CODA.body.map((p, i) => (
+        <p
+          key={i}
+          style={{
+            margin: '26px 0 0',
+            maxWidth: '60ch',
+            fontFamily: 'var(--font-display)',
+            fontSize: 'clamp(17px, 2.4vw, 21px)',
+            lineHeight: 1.6,
+            color: CREAM,
+            opacity: 0.9,
           }}
         >
           {renderProse(p)}
