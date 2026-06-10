@@ -6,11 +6,13 @@ export interface Descriptor {
   complexity: number
   tension: number
   rhythm: number
-  seed: number
+  /** the seed as the user typed it — any string (number, word, phrase, symbols); hashed at the
+   * engine boundary via hashSeed. Kept as text so the URL is shareable and the field round-trips. */
+  seed: string
   count: number
 }
 
-const DEFAULT: Descriptor = { ...DEFAULT_DIALS, seed: 1, count: 6 }
+const DEFAULT: Descriptor = { ...DEFAULT_DIALS, seed: '1', count: 6 }
 
 const clamp01 = (x: number): number => (x < 0 ? 0 : x > 1 ? 1 : x)
 /** Read a 0..1 dial from a param, falling back to `def` when missing/NaN. NB: `Number(null) === 0`,
@@ -33,12 +35,13 @@ export function encodeDescriptor(d: Descriptor, params: URLSearchParams): void {
   params.set('cx', d.complexity.toFixed(2))
   params.set('tn', d.tension.toFixed(2))
   params.set('rh', d.rhythm.toFixed(2))
-  params.set('s', String(d.seed))
+  params.set('s', d.seed)
   params.set('n', String(d.count))
 }
 
 export function decodeDescriptor(params: URLSearchParams): Descriptor {
-  const seed = int(params, 's', DEFAULT.seed) as number
+  const rawSeed = params.get('s')
+  const seed = rawSeed === null || rawSeed === '' ? DEFAULT.seed : rawSeed
   const countRaw = int(params, 'n', DEFAULT.count) as number
   const count = Math.min(12, Math.max(2, countRaw))
   return {

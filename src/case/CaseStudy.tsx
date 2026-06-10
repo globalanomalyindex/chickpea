@@ -1,11 +1,13 @@
 import { Link } from 'react-router-dom'
 import { BrandMenu } from '../app/BrandMenu'
 import { RainbowText, NatureWord } from '../components/colorWords'
-import { SECTIONS, TITLE, type Section } from './content'
+import { SECTIONS, TITLE, REFERENCES, type Section } from './content'
+import { renderProse } from './prose'
 import { SubdivisionFigure } from './figures/SubdivisionFigure'
 import { GoldenFigure } from './figures/GoldenFigure'
 import { ModularFigure } from './figures/ModularFigure'
 import { MeasureFigure } from './figures/MeasureFigure'
+import { WorkShown } from './figures/WorkShown'
 
 const SLATE = '#5d646b'
 const CREAM = '#f4f0e8'
@@ -50,6 +52,9 @@ export function CaseStudy() {
             ))}
           </div>
         ))}
+
+        <WorkShown />
+        <References />
 
         <CloseLinks />
       </article>
@@ -158,9 +163,36 @@ function Prose({ section }: { section: Section }) {
             opacity: 0.86,
           }}
         >
-          {p}
+          {renderProse(p)}
         </p>
       ))}
+    </section>
+  )
+}
+
+/** The references list: every [[id]] the prose cited, numbered in order, each a real work or idea. */
+function References() {
+  return (
+    <section aria-labelledby="refs-h" style={{ margin: 'clamp(44px, 9vw, 88px) 0 0' }}>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.18em', color: STEEL_ON_SLATE, marginBottom: 18 }}>
+        references
+      </div>
+      <h2 id="refs-h" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>
+        references
+      </h2>
+      <ol style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {REFERENCES.map((r, i) => (
+          <li key={r.id} id={`ref-${r.id}`} style={{ display: 'flex', gap: 12, maxWidth: '72ch' }}>
+            <span style={{ flex: '0 0 22px', fontFamily: 'var(--font-mono)', fontSize: 12, color: STEEL_ON_SLATE, opacity: 0.8 }}>
+              {i + 1}
+            </span>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: 1.55, color: CREAM }}>
+              <span style={{ opacity: 0.95 }}>{r.title}.</span>{' '}
+              <span style={{ opacity: 0.6 }}>{r.detail}</span>
+            </span>
+          </li>
+        ))}
+      </ol>
     </section>
   )
 }

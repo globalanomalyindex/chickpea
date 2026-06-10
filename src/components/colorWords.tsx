@@ -133,3 +133,86 @@ export function NatureWord({
     </span>
   )
 }
+
+/**
+ * Word ramps for the case study's letter-painted natural nouns — each the OKLCH colors of the thing
+ * the word names, tuned to read on the SLATE field (#5d646b, L≈0.52): lightnesses sit clearly above
+ * or below the field, chroma carries the rest, and no stop hides in the background's own blue-gray.
+ * Used only on occurrences VETTED for natural meaning (marked `{{word}}` in content.ts), so "leaf"
+ * the plant is painted but "leaf through" would not be.
+ */
+const WORD_RAMPS: Record<string, Stop[]> = {
+  petals: [[0.74, 0.14, 8], [0.8, 0.11, 350], [0.76, 0.15, 28], [0.7, 0.16, 342]],
+  plumage: [[0.68, 0.13, 188], [0.62, 0.14, 250], [0.7, 0.14, 158], [0.62, 0.15, 300]],
+  'leaf venation': [[0.56, 0.13, 145], [0.72, 0.16, 130], [0.66, 0.1, 152], [0.62, 0.15, 138]],
+  leaf: [[0.58, 0.14, 142], [0.72, 0.16, 132], [0.64, 0.13, 150]],
+  sunflower: [[0.82, 0.14, 92], [0.74, 0.14, 76], [0.86, 0.13, 100], [0.66, 0.12, 64]],
+  wildflower: [[0.72, 0.16, 344], [0.82, 0.13, 92], [0.7, 0.13, 232], [0.74, 0.15, 26], [0.7, 0.14, 150]],
+  neutrals: [[0.62, 0.012, 250], [0.74, 0.01, 250], [0.86, 0.008, 90], [0.7, 0.012, 250]],
+  charcoal: [[0.34, 0.02, 250], [0.42, 0.02, 250], [0.3, 0.015, 250], [0.4, 0.02, 250]],
+  cream: [[0.92, 0.03, 82], [0.88, 0.035, 70], [0.94, 0.02, 92]],
+  cardinal: [[0.58, 0.19, 26], [0.62, 0.2, 16], [0.55, 0.18, 32], [0.64, 0.17, 20]],
+  snow: [[0.93, 0.02, 232], [0.9, 0.035, 220], [0.95, 0.015, 245]],
+  poppy: [[0.62, 0.2, 34], [0.6, 0.21, 26], [0.66, 0.19, 44], [0.56, 0.16, 20]],
+  honeycomb: [[0.8, 0.13, 82], [0.73, 0.14, 70], [0.85, 0.11, 90], [0.68, 0.12, 64]],
+  fern: [[0.54, 0.12, 148], [0.66, 0.15, 136], [0.6, 0.13, 156], [0.7, 0.14, 130]],
+  // the white-silver ratio (hakugin-hi): crimson + cream, the hinomaru read without the cliché
+  hakugin: [[0.58, 0.19, 22], [0.92, 0.025, 80], [0.56, 0.2, 18], [0.9, 0.03, 84]],
+}
+
+/** True when a word (case-insensitive) has a dedicated letter ramp. */
+export function hasTint(word: string): boolean {
+  return WORD_RAMPS[word.trim().toLowerCase()] !== undefined
+}
+
+/** `n` solid OKLCH colors stepped across a word's ramp; an unknown word falls back to the `nature`
+ * ramp so it is still painted (never undefined-per-letter). */
+function wordColors(key: string, n: number): string[] {
+  const stops = WORD_RAMPS[key] ?? PALETTES.nature
+  if (n <= 1) {
+    const s = stops[0]
+    return [`oklch(${clampL(s[0])} ${s[1]} ${s[2]})`]
+  }
+  const out: string[] = []
+  for (let i = 0; i < n; i++) {
+    const pos = (i / (n - 1)) * (stops.length - 1)
+    const idx = Math.min(stops.length - 2, Math.floor(pos))
+    const f = pos - idx
+    const a = stops[idx]
+    const b = stops[idx + 1]
+    out.push(`oklch(${clampL(lerp(a[0], b[0], f)).toFixed(3)} ${lerp(a[1], b[1], f).toFixed(3)} ${lerpHue(a[2], b[2], f).toFixed(1)})`)
+  }
+  return out
+}
+
+/**
+ * A natural word painted letter by letter in the colors of the thing it names. The visible text is
+ * `children`; an optional `ramp` key overrides the lookup (so "leaf venation" and a Japanese term
+ * can borrow a ramp whose key differs from the displayed text). Spaces stay uncolored; the color
+ * index counts only letters so the ramp is even across the word.
+ */
+export function TintWord({
+  children,
+  ramp,
+  style,
+}: {
+  children: string
+  ramp?: string
+  style?: React.CSSProperties
+}) {
+  const key = (ramp ?? children).trim().toLowerCase()
+  const letters = Array.from(children)
+  const colors = wordColors(key, letters.filter((c) => c !== ' ').length)
+  let ci = 0
+  return (
+    <span aria-label={children} data-tint={key} style={style}>
+      {letters.map((ch, i) =>
+        ch === ' ' ? ' ' : (
+          <span key={i} aria-hidden style={{ color: colors[ci++] }}>
+            {ch}
+          </span>
+        ),
+      )}
+    </span>
+  )
+}

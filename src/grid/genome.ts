@@ -44,25 +44,32 @@ const MAX_ARITY = 5 // cap on a single band's child count (lower → fewer thin 
  * (The √2 voice the design panel floated was dropped: 0.4142 is not in RATIO_POSITIONS, so ratioName
  * couldn't label it truthfully — coherence beats one extra voice.)
  */
+const BRONZE = (Math.sqrt(13) - 3) / 2 // 1/σ₃ ≈ 0.303, the third metallic mean
 const VOICES: Record<string, number[]> = {
   halves: [0.5],
   thirds: [1 / 3, 2 / 3],
   quarters: [0.25, 0.5, 0.75],
   sixths: [1 / 6, 1 / 3, 2 / 3, 5 / 6],
+  ninths: [1 / 9, 2 / 9, 4 / 9, 5 / 9, 7 / 9, 8 / 9],
   golden: [0.382, 0.618],
   fifths: [0.2, 0.4, 0.6, 0.8],
+  sevenths: [1 / 7, 2 / 7, 3 / 7, 4 / 7, 5 / 7, 6 / 7],
   eighths: [0.125, 0.375, 0.625, 0.875],
   root5: [0.236, 0.764],
   sqrt2: [1 - 1 / Math.SQRT2, 1 / Math.SQRT2],
-  // the silver sections (√2−1 ≈ 0.414 and 2−√2 ≈ 0.586): the proportion of the silver rectangle,
-  // the "yamato-hi" of classical japanese carpentry — calmer than golden, livelier than the half
+  // the silver sections (√2−1 ≈ 0.414 and 2−√2 ≈ 0.586): the white-silver ratio (hakugin-hi) of
+  // classical japanese carpentry — calmer than golden, livelier than the half
   silver: [Math.SQRT2 - 1, 2 - Math.SQRT2],
+  // the bronze sections, third of the metallic means (gold, silver, bronze)
+  bronze: [BRONZE, 1 - BRONZE],
 }
-const CALM_VOICES: number[][] = [VOICES.halves, VOICES.thirds, VOICES.quarters, VOICES.sixths]
-const DYNAMIC_VOICES: number[][] = [VOICES.golden, VOICES.fifths, VOICES.root5, VOICES.eighths, VOICES.sqrt2, VOICES.silver]
+const CALM_VOICES: number[][] = [VOICES.halves, VOICES.thirds, VOICES.quarters, VOICES.sixths, VOICES.ninths]
+const DYNAMIC_VOICES: number[][] = [VOICES.golden, VOICES.fifths, VOICES.sevenths, VOICES.root5, VOICES.eighths, VOICES.sqrt2, VOICES.silver, VOICES.bronze]
 
 // overall canvas aspect ratios (w/h) the engine can pick for a composition; 1 stays the common case.
-const CANVAS_ASPECTS = [4 / 5, 5 / 4, 3 / 4, 4 / 3, 2 / 3, 3 / 2]
+// the named proportions (golden, √2/ISO paper, photo 16:9) join the simple rationals.
+const PHI = (1 + Math.sqrt(5)) / 2
+const CANVAS_ASPECTS = [4 / 5, 5 / 4, 3 / 4, 4 / 3, 2 / 3, 3 / 2, PHI, 1 / PHI, Math.SQRT2, 1 / Math.SQRT2, 16 / 9, 9 / 16]
 const sampleAspect = (rng: Rng): number => (rng() < 0.58 ? 1 : pick(rng, CANVAS_ASPECTS))
 
 /**

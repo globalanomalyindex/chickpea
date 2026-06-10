@@ -14,8 +14,9 @@ function strategyLabel(grid: Grid): string {
   return typeof s === 'string' && s.length > 0 ? s : 'organic growth'
 }
 
-/** The canvas aspect as a familiar name when it is one ("3:2"), else a decimal. */
+/** The canvas aspect as a familiar name when it is one ("3:2", "φ", "√2"), else a decimal. */
 function aspectLabel(aspect: number): string {
+  const PHI = (1 + Math.sqrt(5)) / 2
   const KNOWN: [number, string][] = [
     [1, '1:1'],
     [4 / 5, '4:5'],
@@ -24,6 +25,12 @@ function aspectLabel(aspect: number): string {
     [4 / 3, '4:3'],
     [2 / 3, '2:3'],
     [3 / 2, '3:2'],
+    [PHI, 'φ'],
+    [1 / PHI, '1:φ'],
+    [Math.SQRT2, '√2'],
+    [1 / Math.SQRT2, '1:√2'],
+    [16 / 9, '16:9'],
+    [9 / 16, '9:16'],
   ]
   for (const [v, name] of KNOWN) if (Math.abs(aspect - v) < 0.01) return name
   return `${aspect.toFixed(2)}:1`
@@ -45,7 +52,7 @@ export function CompositionKey({
 }: {
   palette: PaletteColor[]
   grid: Grid
-  seed: number
+  seed: string
 }) {
   return (
     <div

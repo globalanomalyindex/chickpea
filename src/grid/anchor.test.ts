@@ -109,7 +109,9 @@ describe('snapCut (the UI-facing snapper)', () => {
     expect(s?.name).toBe('1/φ')
     expect(s?.nested).toBe(true)
   })
-  it('declines (null) instead of crowding an existing cut', () => {
-    expect(snapCut(0.5, [0.5])).toBeNull()
+  it('declines (null) when every nearby ratio is already taken', () => {
+    // the canon is dense (sevenths/ninths fill the gaps), so a single taken position just routes to
+    // the next free ratio; declining requires the whole neighborhood (4/9, ½, 5/9) to be occupied
+    expect(snapCut(0.5, [4 / 9, 0.5, 5 / 9])).toBeNull()
   })
 })

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { mulberry32, randInt, pick } from './prng'
+import { mulberry32, randInt, pick, hashSeed } from './prng'
 
 describe('mulberry32', () => {
   it('is deterministic for a given seed', () => {
@@ -39,5 +39,26 @@ describe('pick', () => {
     const r = mulberry32(3)
     const arr = ['a', 'b', 'c']
     for (let i = 0; i < 50; i++) expect(arr).toContain(pick(r, arr))
+  })
+})
+
+describe('hashSeed (minecraft-style string seeds)', () => {
+  it('uses a small integer string as itself (back-compat with numeric seeds)', () => {
+    expect(hashSeed('42')).toBe(42)
+    expect(hashSeed('  1 ')).toBe(1)
+    expect(hashSeed('-7')).toBe(7)
+  })
+  it('is deterministic and case/char sensitive for text seeds', () => {
+    expect(hashSeed('sunflower')).toBe(hashSeed('sunflower'))
+    expect(hashSeed('sunflower')).not.toBe(hashSeed('Sunflower'))
+    expect(hashSeed('sunflower')).not.toBe(hashSeed('sunflower~2'))
+  })
+  it('returns a uint32 for any input (words, symbols, huge numbers)', () => {
+    for (const s of ['', 'a', 'the quick brown fox', '🌻', '999999999999999', '!@#$%^&*()']) {
+      const h = hashSeed(s)
+      expect(Number.isInteger(h)).toBe(true)
+      expect(h).toBeGreaterThanOrEqual(0)
+      expect(h).toBeLessThanOrEqual(0xffffffff)
+    }
   })
 })

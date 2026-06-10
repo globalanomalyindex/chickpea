@@ -13,7 +13,7 @@ interface Props {
   complexity: number
   tension: number
   rhythm: number
-  seed: number
+  seed: string
   /** how many colors in the generated palette, and the live palette itself (for the swatch preview) */
   colorCount: number
   palette: PaletteColor[]
@@ -32,7 +32,7 @@ interface Props {
   onComplexity: (v: number) => void
   onTension: (v: number) => void
   onRhythm: (v: number) => void
-  onSeed: (s: number) => void
+  onSeed: (s: string) => void
   onColorCount: (n: number) => void
   onGenerate: () => void
   onIterate: () => void
@@ -291,25 +291,26 @@ function Segmented({
   )
 }
 
-function SeedField({ seed, onSeed }: { seed: number; onSeed: (s: number) => void }) {
+function SeedField({ seed, onSeed }: { seed: string; onSeed: (s: string) => void }) {
   const [draft, setDraft] = useState<string | null>(null)
   const commit = () => {
     if (draft === null) return
-    const n = Math.trunc(Number(draft))
-    if (Number.isFinite(n)) onSeed(n)
+    // any non-empty string is a valid seed (number, word, phrase, symbols — hashed at the engine)
+    const s = draft.trim()
+    if (s.length > 0) onSeed(s)
     setDraft(null)
   }
   return (
     <input
-      value={draft ?? String(seed)}
+      value={draft ?? seed}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={commit}
       onKeyDown={(e) => {
         if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
         if (e.key === 'Escape') setDraft(null)
       }}
-      inputMode="numeric"
-      aria-label="seed"
+      aria-label="seed (any text)"
+      placeholder="number, word, or phrase"
       style={{
         width: '100%',
         boxSizing: 'border-box',

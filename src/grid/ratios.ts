@@ -5,18 +5,31 @@
  * construction, a position the snapper can name.
  */
 
+/** The third metallic mean (bronze), σ₃ = (3+√13)/2 ≈ 3.303; its reciprocal section ≈ 0.303.
+ * Gold (φ), silver (1+√2) and bronze are the first three of the metallic means, the family of
+ * self-similar proportions x = n + 1/x that nature keeps reusing at different "weights". */
+const BRONZE = (Math.sqrt(13) - 3) / 2 // 1/σ₃ ≈ 0.30278
+
 /**
- * Ratio-correct cut positions: the half, thirds, quarters, fifths, sixths, eighths, the golden
- * sections (0.382 / 0.618), the √5 sections (0.236 / 0.764), the √2-rectangle sections
- * (0.293 / 0.707) and the SILVER sections (√2−1 ≈ 0.414 and its complement 2−√2 ≈ 0.586) — the
- * proportion of the silver rectangle, the "yamato-hi" of classical japanese carpentry. These are
- * the only positions an anchor guide may land on, so every committed cut is provably one of the
- * design ratios.
+ * Ratio-correct cut positions — the vocabulary of proportions an anchor guide may land on, so every
+ * committed cut is provably one of the design ratios:
+ *   - the small-denominator rationals: halves, thirds, quarters, fifths, sixths, SEVENTHS, eighths,
+ *     NINTHS (the modular subdivisions a designer reaches for)
+ *   - the golden sections (1−1/φ ≈ 0.382 / 1/φ ≈ 0.618), the seed-spiral ratio of a sunflower
+ *   - the √5 sections (√5−2 ≈ 0.236 / 3−√5 ≈ 0.764)
+ *   - the √2-rectangle sections (1−1/√2 ≈ 0.293 / 1/√2 ≈ 0.707), the ISO paper proportion
+ *   - the SILVER sections (√2−1 ≈ 0.414 / 2−√2 ≈ 0.586) — the white-silver ratio (hakugin-hi)
+ *   - the BRONZE sections (≈ 0.303 / 0.697), completing the gold→silver→bronze metallic-means trio
  */
 export const RATIO_POSITIONS = [
   0.5, 1 / 3, 2 / 3, 0.382, 0.618, 0.25, 0.75, 0.236, 0.764, 0.2, 0.8,
   1 / 6, 5 / 6, 0.125, 0.375, 0.625, 0.875, 1 - 1 / Math.SQRT2, 1 / Math.SQRT2,
   Math.SQRT2 - 1, 2 - Math.SQRT2,
+  // sevenths and ninths complete the small-denominator rational grid
+  1 / 7, 2 / 7, 3 / 7, 4 / 7, 5 / 7, 6 / 7,
+  1 / 9, 2 / 9, 4 / 9, 5 / 9, 7 / 9, 8 / 9,
+  // bronze section + complement
+  BRONZE, 1 - BRONZE,
 ]
 
 /** Nearest ratio-correct position to a rough human cut. */
@@ -68,5 +81,19 @@ export function ratioName(pos: number): string {
   if (near(pos, 1 / Math.SQRT2)) return '1/√2' // ≈ 0.707
   if (near(pos, Math.SQRT2 - 1)) return '√2−1' // ≈ 0.414, the silver section
   if (near(pos, 2 - Math.SQRT2)) return '2−√2' // ≈ 0.586, its complement
+  if (near(pos, 1 / 7)) return '1/7'
+  if (near(pos, 2 / 7)) return '2/7'
+  if (near(pos, 3 / 7)) return '3/7'
+  if (near(pos, 4 / 7)) return '4/7'
+  if (near(pos, 5 / 7)) return '5/7'
+  if (near(pos, 6 / 7)) return '6/7'
+  if (near(pos, 1 / 9)) return '1/9'
+  if (near(pos, 2 / 9)) return '2/9'
+  if (near(pos, 4 / 9)) return '4/9'
+  if (near(pos, 5 / 9)) return '5/9'
+  if (near(pos, 7 / 9)) return '7/9'
+  if (near(pos, 8 / 9)) return '8/9'
+  if (near(pos, BRONZE)) return '1/σ₃' // bronze section ≈ 0.303 (third metallic mean)
+  if (near(pos, 1 - BRONZE)) return '1−1/σ₃' // ≈ 0.697
   return pos.toFixed(3)
 }

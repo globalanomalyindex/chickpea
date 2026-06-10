@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { generateGrid } from '../grid/engine'
 import { buildAnchoredGrid, type Cut } from '../grid/anchor'
+import { hashSeed } from '../grid/prng'
 import { encodeDescriptor, decodeDescriptor } from '../grid/serialize'
 import { generatePalette } from '../palette/generate'
 import type { ColorWeight } from '../palette/kmeans'
@@ -43,8 +44,17 @@ interface ImageState {
   aspect: number // the uploaded image's w/h, so its grid renders/exports uncropped
 }
 
-function randomSeed(): number {
-  return Math.floor(Math.random() * 1_000_000)
+/** A fresh random seed token (Minecraft-style: a big-ish integer string the user can read + share). */
+function randomSeed(): string {
+  return String(Math.floor(Math.random() * 1_000_000_000))
+}
+
+/** The next seed for "iterate" (a small step, not a re-roll): numeric seeds increment; a text seed
+ * gets a `~N` suffix that bumps each iterate, so it stays readable, shareable, and reproducible. */
+function nextSeed(s: string): string {
+  if (/^-?\d+$/.test(s.trim())) return String(Number(s.trim()) + 1)
+  const m = s.match(/^(.*)~(\d+)$/)
+  return m ? `${m[1]}~${Number(m[2]) + 1}` : `${s}~2`
 }
 
 /** The full generative state — one object so history (undo/redo) is a stack of snapshots. The three
@@ -53,11 +63,11 @@ export interface Doc {
   complexity: number // 0..1 — sparse → intricate
   tension: number // 0..1 — calm/centered → dynamic/focal
   rhythm: number // 0..1 — organic/free → periodic/lattice
-  seed: number
+  seed: string // any string (number, word, phrase, symbols) — hashed to a uint32 at the engine edge
   colorCount: number // how many colors in the generated palette
 }
 
-function defaultDoc(complexity: number, tension: number, rhythm: number, seed: number, colorCount: number): Doc {
+function defaultDoc(complexity: number, tension: number, rhythm: number, seed: string, colorCount: number): Doc {
   return { complexity, tension, rhythm, seed, colorCount }
 }
 
@@ -136,25 +146,29 @@ export function Studio() {
 
   // In image mode the grid is the anchored grid (cuts fixed, math seed-varied); in scratch mode it is
   // the procedural engine driven by (seed, dials). Either way Generate/Iterate re-seed the variations.
+  // the engines run on a uint32; the seed string is hashed once here (Minecraft-style) so a number,
+  // a word, or a whole phrase all drive a reproducible composition.
+  const seedNum = useMemo(() => hashSeed(seed), [seed])
+
   const grid = useMemo(() => {
-    if (mode === 'image' && image) return buildAnchoredGrid(image.cuts, seed, image.aspect)
-    return generateGrid(seed, { complexity, tension, rhythm })
-  }, [mode, image, seed, complexity, tension, rhythm])
+    if (mode === 'image' && image) return buildAnchoredGrid(image.cuts, seedNum, image.aspect)
+    return generateGrid(seedNum, { complexity, tension, rhythm })
+  }, [mode, image, seedNum, complexity, tension, rhythm])
 
   const palette = useMemo(() => {
     if (mode === 'image' && image && image.palette.length > 0) return imagePaletteToPalette(image.palette)
-    return generatePalette(seed, colorCount)
-  }, [mode, image, seed, colorCount])
+    return generatePalette(seedNum, colorCount)
+  }, [mode, image, seedNum, colorCount])
 
   // Type is only placed on square compositions: the SVG stretches a unit viewBox, which would
   // distort glyphs on a non-square canvas, so non-square grids stay type-free.
   const composition = useMemo(
-    () => buildComposition(grid, palette, { seed, textChance: textOn && Math.abs(grid.aspect - 1) < 0.01 ? 0.3 : 0 }),
-    [grid, palette, seed, textOn],
+    () => buildComposition(grid, palette, { seed: seedNum, textChance: textOn && Math.abs(grid.aspect - 1) < 0.01 ? 0.3 : 0 }),
+    [grid, palette, seedNum, textOn],
   )
 
   const onGenerate = useCallback(() => commit({ seed: randomSeed() }, 'seed'), [commit])
-  const onIterate = useCallback(() => commit((d) => ({ seed: d.seed + 1 }), 'seed'), [commit])
+  const onIterate = useCallback(() => commit((d) => ({ seed: nextSeed(d.seed) }), 'seed'), [commit])
 
   // Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z or Ctrl+Y redo. Skip while typing in a field.
   useEffect(() => {
