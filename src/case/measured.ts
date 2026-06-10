@@ -35,7 +35,7 @@ export interface MeasuredData {
 
 export const MEASURED: MeasuredData = {
   "generatedAt": "2026-06-10",
-  "commit": "aefbae9",
+  "commit": "31f204f",
   "seeds": 500,
   "tests": {
     "total": 235,
