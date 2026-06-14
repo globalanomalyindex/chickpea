@@ -116,7 +116,7 @@ export const CODA = {
   heading: 'nature was never trying to design anything',
   body: [
     'every principle on this page is real, and it earns its keep; i leaned on all of it chasing this idea down. but the thing underneath, the part that actually moves me, is quieter: none of it was ever invented. the golden angle in a {{sunflower}} head was not solved by the sunflower. nature kept no notebook, drew no rules, never once stopped to ask how do i design this. it just did, and it was right, and it has been getting more right for four billion years with nobody grading it.',
-    'what we call design is the name we pinned on that afterward, for our own comfort, a label on a genius that was never ours to claim. so when i go looking for an answer i do not reach for a trend or a grid system or my own taste, i reach for the {{cosmic}} intelligence already running the experiment: forever generating, forever selecting, forever improving, with no ego and no deadline.',
+    'what we call design is the name we pinned on that afterward, for our own comfort, a label on a genius that was never ours to claim. so when i go looking for an answer i reach for the {{cosmic}} intelligence already running the experiment, forever generating, forever selecting, forever improving, with no ego and no deadline. nature combined with my own taste is the whole basis of how i work: it proposes at a scale i never could, and i choose.',
     'look closely enough at anything alive and you are not reading design the way we were taught it. you are watching nature recognize its own genius. this whole studio is just me trying to listen.',
   ],
 }
